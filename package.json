@@ -10,6 +10,8 @@
   },
   "scripts": {
     "install:launch-project": "node skills/launch-project/scripts/install.mjs",
-    "launch": "node skills/launch-project/scripts/launch.mjs"
+    "launch": "node skills/launch-project/scripts/launch.mjs",
+    "test:governance": "node --test tests/*.test.mjs",
+    "test": "pnpm run test:governance && pnpm -r test"
   }
 }

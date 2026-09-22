@@ -1,0 +1,12 @@
+{
+  "name": "launch-project",
+  "version": "1.0.0",
+  "private": true,
+  "license": "BSD-3-Clause",
+  "description": "Agent Skill: opens a detached terminal running claude --remote-control in another project's directory.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "install-skill": "node scripts/install.mjs"
+  }
+}

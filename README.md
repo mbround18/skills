@@ -42,6 +42,9 @@ Supports cosmic-term, kitty, alacritty, konsole, gnome-terminal, and xterm.
 ```
 skills/<skill-name>/
 ├── SKILL.md          # required: YAML frontmatter + instructions
+├── README.md          # required: consumer-facing readme
+├── package.json       # required: workspace package with a "test" script
+├── tests/              # required: at least one *.test.mjs
 ├── scripts/           # optional: *.mjs, no dependencies unless you need one
 ├── references/        # optional: docs loaded on demand
 └── assets/            # optional: templates, static resources
@@ -52,6 +55,23 @@ Follow the [Agent Skills specification](https://agentskills.io/specification):
 `description` should say both what the skill does and when to use it. Then
 add an `install:<name>` script to the root `package.json` and a section to
 this README.
+
+See [AGENTS.md](AGENTS.md) for the full governance checklist — the root
+`tests/governance.test.mjs` suite enforces it automatically.
+
+## Workspace and tests
+
+This repo is a [pnpm workspace](pnpm-workspace.yaml); every skill under
+`skills/*` is its own package.
+
+```sh
+pnpm install
+pnpm test
+```
+
+`pnpm test` runs the root governance tests (every skill has a `SKILL.md`,
+`README.md`, `package.json` with a `test` script, and its own `tests/`) and
+then each skill's own test suite.
 
 ## License
 

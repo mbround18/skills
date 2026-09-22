@@ -6,19 +6,29 @@
 
 import { existsSync, lstatSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const skillDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const skillName = skillDir.split("/").pop();
-const targetDir = join(homedir(), ".claude", "skills");
-const target = join(targetDir, skillName);
 
-mkdirSync(targetDir, { recursive: true });
+/** Symlink `sourceDir` into `targetSkillsDir/<basename(sourceDir)>`, replacing whatever is there. */
+export function installSkill(sourceDir, targetSkillsDir) {
+  const target = join(targetSkillsDir, basename(sourceDir));
 
-if (existsSync(target) || lstatSync(target, { throwIfNoEntry: false })) {
-  rmSync(target, { recursive: true, force: true });
+  mkdirSync(targetSkillsDir, { recursive: true });
+
+  if (existsSync(target) || lstatSync(target, { throwIfNoEntry: false })) {
+    rmSync(target, { recursive: true, force: true });
+  }
+
+  symlinkSync(sourceDir, target, "dir");
+  return target;
 }
 
-symlinkSync(skillDir, target, "dir");
-console.log(`linked ${skillDir} -> ${target}`);
+export function main() {
+  const targetSkillsDir = join(homedir(), ".claude", "skills");
+  const target = installSkill(skillDir, targetSkillsDir);
+  console.log(`linked ${skillDir} -> ${target}`);
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) main();

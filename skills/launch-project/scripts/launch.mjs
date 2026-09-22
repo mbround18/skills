@@ -24,7 +24,7 @@ const DEFAULT_ROOTS = (
 // Terminals this script knows how to drive, in preference order. Most accept
 // a command directly; cosmic-term does not expose `-e`, so it needs the
 // SHELL-wrapper trick below.
-const TERMINALS = [
+export const TERMINALS = [
   {
     bin: "cosmic-term",
     needsWrapper: true,
@@ -57,11 +57,11 @@ const TERMINALS = [
   },
 ];
 
-function shQuote(s) {
+export function shQuote(s) {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
-function which(bin) {
+export function which(bin) {
   return spawnSync("sh", ["-c", `command -v ${bin}`]).status === 0;
 }
 
@@ -74,7 +74,7 @@ function which(bin) {
 const SEARCH_DEPTH = 2;
 
 /** Case-insensitive search for `name` among directories under `dir`, up to `depth` levels deep. */
-function findCaseInsensitive(dir, name, depth) {
+export function findCaseInsensitive(dir, name, depth) {
   if (!existsSync(dir)) return undefined;
   let entries;
   try {
@@ -96,10 +96,10 @@ function findCaseInsensitive(dir, name, depth) {
   return undefined;
 }
 
-function resolveProject(input) {
+export function resolveProject(input, roots = DEFAULT_ROOTS) {
   if (isAbsolute(input) && existsSync(input)) return input;
 
-  for (const root of DEFAULT_ROOTS) {
+  for (const root of roots) {
     const direct = resolve(root, input);
     if (existsSync(direct)) return direct;
 
@@ -111,21 +111,21 @@ function resolveProject(input) {
   if (existsSync(cwdRelative)) return cwdRelative;
 
   throw new Error(
-    `could not find project "${input}" under: ${DEFAULT_ROOTS.join(", ")} (set LAUNCH_PROJECT_ROOTS to add more)`,
+    `could not find project "${input}" under: ${roots.join(", ")} (set LAUNCH_PROJECT_ROOTS to add more)`,
   );
 }
 
-function pickTerminal() {
-  const terminal = TERMINALS.find((t) => which(t.bin));
+export function pickTerminal(terminals = TERMINALS) {
+  const terminal = terminals.find((t) => which(t.bin));
   if (!terminal) {
     throw new Error(
-      `no supported terminal found on PATH (tried: ${TERMINALS.map((t) => t.bin).join(", ")})`,
+      `no supported terminal found on PATH (tried: ${terminals.map((t) => t.bin).join(", ")})`,
     );
   }
   return terminal;
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const [projectArg, ...rest] = argv;
   const opts = { sessionName: undefined };
   for (let i = 0; i < rest.length; i++) {
@@ -134,7 +134,7 @@ function parseArgs(argv) {
   return { projectArg, opts };
 }
 
-function main() {
+export function main() {
   const { projectArg, opts } = parseArgs(process.argv.slice(2));
   if (!projectArg) {
     console.error("usage: launch.mjs <project-name-or-path> [--session-name <name>]");
@@ -174,4 +174,4 @@ function main() {
   console.log(`launched ${terminal.bin} · ${dir} · claude --remote-control`);
 }
 
-main();
+if (import.meta.url === `file://${process.argv[1]}`) main();
