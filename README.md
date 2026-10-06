@@ -37,6 +37,18 @@ Matches project directory names case-insensitively under `~/development` (or
 `LAUNCH_PROJECT_ROOTS`, colon-separated), so typos in casing don't matter.
 Supports cosmic-term, kitty, alacritty, konsole, gnome-terminal, and xterm.
 
+### [tomorrow](skills/tomorrow)
+
+Writes or resumes `./TOMORROW.md`, a repo's hand-off note: the state of the
+tree, what is uncommitted and why, what was still running, what shipped,
+what is owed, and what cost time. One `/tomorrow` does both — the note's
+timestamp decides whether you are pausing or returning, an hour or a week
+later.
+
+```sh
+node skills/tomorrow/scripts/snapshot.mjs [repo ...]   # the facts the note is built from
+```
+
 ## Adding a skill
 
 ```

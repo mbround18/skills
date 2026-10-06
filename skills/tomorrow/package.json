@@ -1,0 +1,13 @@
+{
+  "name": "tomorrow",
+  "version": "1.0.0",
+  "private": true,
+  "license": "BSD-3-Clause",
+  "description": "Agent Skill: writes or resumes ./TOMORROW.md, a repo's hand-off note, deciding which by the note's timestamp.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "snapshot": "node scripts/snapshot.mjs",
+    "install-skill": "node scripts/install.mjs"
+  }
+}
