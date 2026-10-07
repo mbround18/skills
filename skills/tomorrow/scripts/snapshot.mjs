@@ -11,8 +11,9 @@
 //   node scripts/snapshot.mjs [repo-path ...]     (default: cwd)
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 export const NOTE_FILE = "TOMORROW.md";
 
@@ -195,4 +196,4 @@ export function main(argv = process.argv.slice(2)) {
   for (const path of paths) process.stdout.write(render(snapshot(path)));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main();

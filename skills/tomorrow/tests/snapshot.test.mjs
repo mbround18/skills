@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
 
 import {
@@ -175,6 +176,20 @@ describe("snapshot on a real repository", () => {
       assert.match(render(snap), /not a git repository/);
     } finally {
       rmSync(plain, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("run as a script", () => {
+  it("prints when invoked through a symlink, as an installed skill is", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tomorrow-link-"));
+    try {
+      const link = join(dir, "snapshot.mjs");
+      symlinkSync(fileURLToPath(new URL("../scripts/snapshot.mjs", import.meta.url)), link);
+      const out = execFileSync("node", [link, dir], { encoding: "utf8" });
+      assert.match(out, /not a git repository/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

@@ -10,10 +10,12 @@ import {
   existsSync,
   mkdtempSync,
   readdirSync,
+  realpathSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const DEFAULT_ROOTS = (
   process.env.LAUNCH_PROJECT_ROOTS ?? `${homedir()}/development`
@@ -174,4 +176,4 @@ export function main() {
   console.log(`launched ${terminal.bin} · ${dir} · claude --remote-control`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main();
