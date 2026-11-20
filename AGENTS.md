@@ -33,8 +33,16 @@ automatically — it fails the build if any skill is missing a piece.
 - Scripts are `.mjs`. Prefer zero dependencies; reach for an npm package
   only when hand-rolling it would be worse, and add it via `pnpm add`.
 - Exported, testable functions over inline `main()` logic — guard the CLI
-  entrypoint behind `if (import.meta.url === \`file://${process.argv[1]}\`)`
-  so scripts stay both runnable and importable by tests.
+  entrypoint behind
+  `if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)`
+  so scripts stay both runnable and importable by tests. Compare against the
+  *real* path: installed skills are symlinks, and `import.meta.url` is always
+  resolved while `process.argv[1]` is not, so the naive
+  `` `file://${process.argv[1]}` `` check silently skips `main()`. The
+  governance suite rejects it.
+- `SKILL.md` command examples use paths relative to the skill's directory
+  and must say so ("relative to this skill's directory"); an agent's working
+  directory is usually the user's project, not the skill.
 - Every commit must be GPG/SSH-signed. No `--no-gpg-sign`, no unsigned
   fallback — if signing fails, stop and tell the user.
 - Never include a Claude session link or `Claude-Session:` line in anything

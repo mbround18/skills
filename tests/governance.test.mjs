@@ -16,6 +16,13 @@ const skillsDir = join(repoRoot, "skills");
 
 const NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+function scriptFiles(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? scriptFiles(join(dir, e.name)) : e.name.endsWith(".mjs") ? [join(dir, e.name)] : [],
+  );
+}
+
 const skillNames = readdirSync(skillsDir, { withFileTypes: true })
   .filter((e) => e.isDirectory())
   .map((e) => e.name);
@@ -78,6 +85,26 @@ describe("every skill", () => {
 
         const testFiles = readdirSync(testsDir).filter((f) => f.endsWith(".test.mjs"));
         assert.ok(testFiles.length > 0, `${name}/tests/ has no *.test.mjs files`);
+      });
+
+      it("guards CLI entrypoints so they also run through the installed symlink", () => {
+        for (const file of scriptFiles(join(dir, "scripts"))) {
+          const src = readFileSync(file, "utf8");
+          const rel = file.slice(skillsDir.length + 1);
+          assert.ok(
+            !src.includes("`file://${process.argv[1]}`"),
+            `${rel}: compares import.meta.url with the unresolved argv[1], so main() never runs through a symlink — use pathToFileURL(realpathSync(process.argv[1])).href`,
+          );
+          if (/import\.meta\.url ===/.test(src)) {
+            assert.match(src, /realpathSync\(process\.argv\[1\]\)/, `${rel}: CLI guard must compare against realpathSync(process.argv[1])`);
+          }
+        }
+      });
+
+      it("says what its SKILL.md script paths are relative to", () => {
+        const skillMd = readFileSync(join(dir, "SKILL.md"), "utf8");
+        if (!/node scripts\//.test(skillMd)) return;
+        assert.match(skillMd, /relative to this skill's directory/i, `${name}/SKILL.md runs node scripts/... but never says paths are relative to this skill's directory`);
       });
     });
   }

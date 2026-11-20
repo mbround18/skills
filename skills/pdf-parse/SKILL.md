@@ -19,7 +19,8 @@ takes well under a second for a 200-page book.
 node scripts/pdf-parse.mjs <file.pdf> [more.pdf ...] [--out <dir>] [--pages 10-42] [--target 220] [--max 400] [--no-notes] [--stdout]
 ```
 
-Run it from this skill's directory, or give the script's absolute path.
+Paths are relative to this skill's directory: run it from there, or give
+the script's absolute path.
 Output goes to `<out>/<slug>/` (default `./pdf-parse-out/<slug>/`):
 
 | File | What it is |

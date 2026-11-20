@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
 
 import {
@@ -112,5 +114,21 @@ describe("findCaseInsensitive and resolveProject", () => {
 
   it("resolveProject throws with the searched roots when nothing matches", () => {
     assert.throws(() => resolveProject("does-not-exist", [root]), /could not find project/);
+  });
+});
+
+describe("run as a script", () => {
+  it("runs when invoked through a symlink, as an installed skill is", () => {
+    const dir = mkdtempSync(join(tmpdir(), "launch-link-"));
+    try {
+      const link = join(dir, "launch.mjs");
+      symlinkSync(fileURLToPath(new URL("../scripts/launch.mjs", import.meta.url)), link);
+      // No project argument: prints usage and exits 1 without opening anything.
+      const run = spawnSync("node", [link], { encoding: "utf8" });
+      assert.match(run.stderr, /usage: launch\.mjs/);
+      assert.equal(run.status, 1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

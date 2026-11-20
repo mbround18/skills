@@ -25,6 +25,9 @@ holds uncommitted work:
 node scripts/snapshot.mjs [repo-path ...]
 ```
 
+Paths are relative to this skill's directory (the folder holding this
+SKILL.md): run from there, or give the script's absolute path.
+
 Its last line is the decision, made from timestamps alone:
 
 | the note…                                       | mode     |

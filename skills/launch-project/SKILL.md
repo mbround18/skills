@@ -29,6 +29,9 @@ this session babysitting all of them.
 node scripts/launch.mjs <project-name-or-path> [--session-name <name>]
 ```
 
+Paths are relative to this skill's directory (the folder holding this
+SKILL.md): run from there, or give the script's absolute path.
+
 - `<project-name-or-path>` — an absolute path, a path relative to a root in
   `LAUNCH_PROJECT_ROOTS` (default `~/development`), or just a directory name.
   Matching is case-insensitive, so `thunderforgevtt` resolves to
