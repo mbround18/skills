@@ -4,10 +4,10 @@
 // only if the symlink was somehow replaced — normally a pull is enough,
 // since the installed skill is a link back to this checkout.
 
-import { existsSync, lstatSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const skillDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -31,4 +31,4 @@ export function main() {
   console.log(`linked ${skillDir} -> ${target}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main();

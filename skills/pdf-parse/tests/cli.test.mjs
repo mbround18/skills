@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
 
 import { parseArgs, parseFile, parseRange, slugify, toJsonl } from "../scripts/pdf-parse.mjs";
@@ -90,5 +91,20 @@ describe("end to end through pdftotext", { skip: !hasPoppler && "pdftotext not i
   it("runs as a CLI", () => {
     const out = execFileSync(process.execPath, [new URL("../scripts/pdf-parse.mjs", import.meta.url).pathname, pdf, "--stdout"]).toString();
     assert.ok(out.trim().split("\n").every((l) => JSON.parse(l).id.startsWith("field-report:")));
+  });
+});
+
+describe("run as a script", () => {
+  it("runs when invoked through a symlink, as an installed skill is", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pdf-parse-link-"));
+    try {
+      const link = join(dir, "pdf-parse.mjs");
+      symlinkSync(fileURLToPath(new URL("../scripts/pdf-parse.mjs", import.meta.url)), link);
+      const run = spawnSync("node", [link], { encoding: "utf8" });
+      assert.match(run.stdout, /usage: pdf-parse\.mjs/);
+      assert.equal(run.status, 2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

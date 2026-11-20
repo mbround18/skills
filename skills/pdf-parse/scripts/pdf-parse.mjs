@@ -14,8 +14,9 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { parseBboxHtml } from "./lib/bbox.mjs";
 import { chunk, structure } from "./lib/structure.mjs";
@@ -162,7 +163,7 @@ export function main(argv = process.argv.slice(2)) {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   try {
     main();
   } catch (err) {
