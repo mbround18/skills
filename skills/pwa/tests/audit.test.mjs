@@ -139,6 +139,13 @@ test("analyzeServiceWorker recognises a Workbox-generated worker", () => {
   assert.ok(sw.workbox && sw.fetchHandler && sw.precache && sw.cleanup && sw.offlineFallback && sw.getOnly && sw.updateFlow);
 });
 
+test("a Workbox navigateFallback (SPA shell) counts as an offline fallback", () => {
+  // Minified shape vite-plugin-pwa / workbox-build emit for navigateFallback: "index.html".
+  const gen = `define(["./workbox-2ff6bd68"],(function(s){s.precacheAndRoute([{url:"index.html",revision:"1"}],{}),s.cleanupOutdatedCaches(),s.registerRoute(new s.NavigationRoute(s.createHandlerBoundToURL("index.html"),{denylist:[/^\\/api/]}))}));`;
+  assert.ok(analyzeServiceWorker(gen, "").offlineFallback);
+  assert.ok(!analyzeServiceWorker(`define(["./workbox-1"],(function(s){s.precacheAndRoute([])}));`, "").offlineFallback);
+});
+
 test("the shipped templates, dropped into a build, reach robust", () => {
   const manifest = JSON.parse(readFileSync(join(assets, "manifest.webmanifest"), "utf8"));
   const files = {

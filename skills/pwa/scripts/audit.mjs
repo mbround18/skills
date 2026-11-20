@@ -116,7 +116,9 @@ export function analyzeServiceWorker(sw, clientCode = "") {
     workbox,
     fetchHandler: /addEventListener\(\s*['"`]fetch['"`]|\bonfetch\s*=/.test(sw) || (workbox && /registerRoute|precacheAndRoute|NavigationRoute/.test(sw)),
     precache: (/addEventListener\(\s*['"`]install['"`]/.test(sw) && /caches\.open|\.addAll\(/.test(sw)) || (workbox && /precache/i.test(sw)),
-    offlineFallback: /offline/i.test(sw) || (workbox && /setCatchHandler|offlineFallback/.test(sw)),
+    // Workbox's SPA fallback (generateSW navigateFallback → NavigationRoute bound to a
+    // precached shell) serves every navigation offline, so it counts too.
+    offlineFallback: /offline/i.test(sw) || (workbox && /setCatchHandler|offlineFallback|createHandlerBoundToURL/.test(sw)),
     cleanup: /caches\.delete\(/.test(sw) || /cleanupOutdatedCaches/.test(sw),
     getOnly: /\.method\s*[!=]==?\s*['"`](GET|POST)['"`]|['"`](GET|POST)['"`]\s*[!=]==?\s*[\w.]*method/i.test(sw) || workbox,
     updateFlow: /skipWaiting|clients\.claim/.test(sw) && /controllerchange|updatefound|\.waiting\b|SKIP_WAITING/.test(all),
