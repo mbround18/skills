@@ -48,7 +48,7 @@ export function extractBbox(pdfPath, { from, to } = {}) {
 /** bbox XHTML → { doc, elements, chunks, stats }. Pure: tests feed it XHTML directly. */
 export function parseDocument(html, { name = "document", firstPage = 1, target, max, includeNotes = true } = {}) {
   const { meta, pages } = parseBboxHtml(html, { firstPage });
-  const { elements, stats } = structure(pages);
+  const { elements, labels, stats } = structure(pages);
   const title = meta.title?.trim() || name;
   const slug = slugify(name);
   const chunks = chunk(elements, { target, max, includeNotes }).map((c, i) => {
@@ -60,6 +60,8 @@ export function parseDocument(html, { name = "document", firstPage = 1, target, 
       kind: c.kind,
       section: c.section,
       pages: c.pages,
+      // Printed page numbers, when the PDF has them: cite these.
+      ...(labels[c.pages[0]] ? { printed: [labels[c.pages[0]], labels[c.pages[1]] ?? null] } : {}),
       // A ready-made header for embedding or prompting: where this text lives.
       context: [title, ...c.section].join(" › ") + ` (${pages})`,
       words: (c.text.match(/\S+/g) ?? []).length,
@@ -70,6 +72,7 @@ export function parseDocument(html, { name = "document", firstPage = 1, target, 
   return {
     doc: { slug, title, author: meta.author ?? null, pages: pages.length, firstPage },
     elements,
+    labels,
     chunks,
     stats: { ...stats, chars, charsPerPage: pages.length ? Math.round(chars / pages.length) : 0 },
   };
@@ -82,7 +85,7 @@ export function toMarkdown(parsed) {
   for (const el of parsed.elements) {
     if (el.page !== page) {
       page = el.page;
-      out.push(`<!-- page ${page} -->`, "");
+      out.push(parsed.labels?.[page] ? `<!-- page ${page} (printed ${parsed.labels[page]}) -->` : `<!-- page ${page} -->`, "");
     }
     if (el.type === "heading") out.push(`${"#".repeat(Math.min(6, el.level + 1))} ${el.text}`, "");
     else if (el.type === "note") out.push(`> [note] ${el.text}`, "");
@@ -131,7 +134,7 @@ export function parseFile(pdfPath, opts) {
     chunks: parsed.chunks.length,
     words: parsed.chunks.reduce((n, c) => n + c.words, 0),
     stats: parsed.stats,
-    format: { chunks: "chunks.jsonl — one JSON object per line: id, doc, title, kind (text|note), section[], pages[from,to], context, words, text", markdown: "document.md" },
+    format: { chunks: "chunks.jsonl — one JSON object per line: id, doc, title, kind (text|note), section[], pages[from,to], printed[from,to] (printed page numbers, when found), context, words, text", markdown: "document.md" },
     warnings: [],
   };
   if (parsed.stats.charsPerPage < 30) manifest.warnings.push("little or no text layer — this looks scanned; OCR it first (e.g. ocrmypdf) and re-run");

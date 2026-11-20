@@ -13,7 +13,10 @@
 const BAND = 0.09; // top/bottom fraction of the page treated as header/footer territory
 const FOLIO = /^(page\s+)?(\d{1,4}|[ivxlcdm]{1,7})(\s+of\s+\d+)?$/i;
 
-const furnitureKey = (text) => text.toLowerCase().replace(/\d+/g, "#").replace(/\s+/g, " ").trim();
+// Digits and separators ("|", "•", dashes) vary between pages of the same
+// running head ("18 | FIELD GUIDE", "| FIELD GUIDE"), so they are folded away.
+export const furnitureKey = (text) =>
+  text.toLowerCase().replace(/\d+/g, "#").replace(/[|│•·–—]/g, " ").replace(/\s+/g, " ").trim();
 
 function inBand(line, page) {
   return line.y2 < page.height * BAND + 30 && line.y < page.height * BAND || line.y > page.height * (1 - BAND);
@@ -33,7 +36,76 @@ export function findFurniture(pages, { minPages = 3 } = {}) {
 
 export function isFurniture(line, page, furniture) {
   if (!inBand(line, page)) return false;
-  return FOLIO.test(line.text) || line.text === "|" || furniture.has(furnitureKey(line.text));
+  const key = furnitureKey(line.text);
+  return FOLIO.test(line.text) || key === "" || furniture.has(key) || furniture.has(key.replace(/^# |\s#$/g, ""));
+}
+
+const LABEL = /^(\d{1,4}|[ivxlcdm]{1,7})$/i;
+
+export function romanToInt(s) {
+  const v = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+  let n = 0;
+  const t = s.toLowerCase();
+  for (let i = 0; i < t.length; i++) n += v[t[i]] < (v[t[i + 1]] ?? 0) ? -v[t[i]] : v[t[i]];
+  return n;
+}
+
+export function intToRoman(n) {
+  const table = [[1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"], [50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"]];
+  let out = "";
+  for (const [v, r] of table) while (n >= v) (out += r), (n -= v);
+  return out;
+}
+
+/**
+ * Printed page numbers ("folios"), which rarely match the PDF's own page
+ * index. Bare numbers in the header/footer band are candidates; a page with
+ * exactly one is trusted when a neighbouring trusted page agrees on the
+ * offset, and pages with none (chapter openers, blanks) or several (a
+ * chapter number beside the folio) are filled in when the pages on either
+ * side agree. Returns { [pdfPage]: "label" } for the pages it could settle.
+ */
+export function pageLabels(pages) {
+  const parse = (t) => (/^\d+$/.test(t) ? { kind: "arabic", n: +t } : { kind: "roman", n: romanToInt(t) });
+  const show = ({ kind, n }) => (kind === "arabic" ? String(n) : intToRoman(n));
+  const cands = pages.map((p) => {
+    const out = [];
+    for (const b of p.blocks) for (const l of b.lines) if (LABEL.test(l.text) && inBand(l, p)) out.push(parse(l.text));
+    return out;
+  });
+  const offset = (c, i) => `${c.kind}:${c.n - i}`;
+
+  const single = cands.map((c) => (c.length === 1 ? c[0] : null));
+  const trusted = single.map((c, i) => {
+    if (!c) return null;
+    const near = (dir) => {
+      for (let j = i + dir; j >= 0 && j < single.length; j += dir) if (single[j]) return offset(single[j], j);
+      return null;
+    };
+    return near(-1) === offset(c, i) || near(1) === offset(c, i) ? c : null;
+  });
+
+  const labels = {};
+  for (let i = 0; i < pages.length; i++) {
+    let c = trusted[i];
+    if (!c) {
+      const find = (dir) => {
+        for (let j = i + dir; j >= 0 && j < trusted.length; j += dir) if (trusted[j]) return { kind: trusted[j].kind, n: trusted[j].n + (i - j) };
+        return null;
+      };
+      const before = find(-1);
+      const after = find(1);
+      // A printed number that either neighbour predicts wins (the first page
+      // of chapter 1 sits between roman front matter and arabic body); a page
+      // with no number is filled only when both sides agree.
+      const agrees = (g) => g && cands[i].some((x) => offset(x, 0) === offset(g, 0));
+      let guess = [after, before].find(agrees) ?? null;
+      if (!guess && cands[i].length === 0) guess = before && after ? (offset(before, 0) === offset(after, 0) ? before : null) : before ?? after;
+      if (guess && guess.n > 0) c = guess;
+    }
+    if (c) labels[pages[i].number] = show(c);
+  }
+  return labels;
 }
 
 /** Character-weighted mode of line heights, rounded to 0.5pt. */
@@ -69,6 +141,7 @@ const ENDS_SENTENCE = /[.!?:;”"’)\]]$/;
  *   { type: "heading", level, text, page }
  *   { type: "paragraph", text, page, endPage }
  *   { type: "note", text, page }
+ * plus `labels`, the printed page number of each PDF page where known.
  */
 export function structure(pages, { headingRatio = 1.15, noteRatio = 0.88, maxHeadingChars = 160 } = {}) {
   const furniture = findFurniture(pages);
@@ -88,7 +161,8 @@ export function structure(pages, { headingRatio = 1.15, noteRatio = 0.88, maxHea
         minSize >= body * headingRatio && lines.length <= 3 && text.length <= maxHeadingChars && !/[.,;]$/.test(text) && /\p{L}/u.test(text) && !TOC_LINE.test(text);
       const isNote = !isHeading && size <= body * noteRatio && lines[0].y > page.height * 0.6;
       if (isHeading) headingSizes.set(Math.round(size * 2) / 2, (headingSizes.get(Math.round(size * 2) / 2) ?? 0) + 1);
-      raw.push({ kind: isHeading ? "heading" : isNote ? "note" : "paragraph", text, size, page: page.number });
+      const band = lines.length === 1 && inBand(lines[0], page);
+      raw.push({ kind: isHeading ? "heading" : isNote ? "note" : "paragraph", text, size, band, page: page.number });
     }
   }
 
@@ -99,8 +173,14 @@ export function structure(pages, { headingRatio = 1.15, noteRatio = 0.88, maxHea
   const used = [...new Set(raw.filter((r) => r.kind === "heading").map((r) => levelOf(r.size)))].sort((a, b) => a - b);
   const dense = (size) => used.indexOf(levelOf(size)) + 1;
 
+  // Running heads that repeat a heading ("SOIL AND WATER" over that chapter) recur
+  // on too few pages to count as furniture, so match them to the headings.
+  const headingKeys = new Set(raw.filter((r) => r.kind === "heading").map((r) => furnitureKey(r.text)));
+  const isRunningHead = (r) => r.kind === "paragraph" && r.band && headingKeys.has(furnitureKey(r.text));
+
   const elements = [];
   for (const r of raw) {
+    if (isRunningHead(r)) continue;
     if (r.kind === "heading") {
       elements.push({ type: "heading", level: dense(r.size), text: r.text, page: r.page });
     } else if (r.kind === "note") {
@@ -119,7 +199,7 @@ export function structure(pages, { headingRatio = 1.15, noteRatio = 0.88, maxHea
       }
     }
   }
-  return { elements, stats: { bodySize: body, headingSizes: ranked, furniture: [...furniture] } };
+  return { elements, labels: pageLabels(pages), stats: { bodySize: body, headingSizes: ranked, furniture: [...furniture] } };
 }
 
 /**

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { decodeEntities, parseBboxHtml } from "../scripts/lib/bbox.mjs";
-import { bodySize, chunk, findFurniture, joinLines, rankHeadingSizes, sentences, structure } from "../scripts/lib/structure.mjs";
+import { bodySize, chunk, findFurniture, furnitureKey, intToRoman, joinLines, pageLabels, rankHeadingSizes, romanToInt, sentences, structure } from "../scripts/lib/structure.mjs";
 
 // Build bbox-layout XHTML the way poppler prints it.
 function xhtml(pages, { height = 648 } = {}) {
@@ -48,6 +48,17 @@ describe("structure", () => {
     assert.equal(bodySize(pages), 11);
   });
 
+  it("drops a running head that repeats a heading, even on few pages", () => {
+    const p = parseBboxHtml(xhtml([[[{ text: "Chapter One", size: 24, top: 90 }], para(120, "Text.")], [[{ text: "CHAPTER ONE", size: 8, top: 20 }], para(90, "More text.")]])).pages;
+    assert.deepEqual(structure(p).elements.map((e) => e.text), ["Chapter One", "Text.", "More text."]);
+  });
+
+  it("folds digits and separators so variants of one running head match", () => {
+    assert.equal(furnitureKey("18 | FIELD GUIDE"), "# field guide");
+    assert.equal(furnitureKey("| FIELD GUIDE"), "field guide");
+    assert.equal(furnitureKey("|"), "");
+  });
+
   it("drops running heads and folios", () => {
     assert.ok(!elements.some((e) => /RUNNING HEAD|^\d$/.test(e.text)));
   });
@@ -74,6 +85,33 @@ describe("structure", () => {
   it("keeps rare display sizes from claiming every level", () => {
     assert.deepEqual(rankHeadingSizes(new Map([[90, 1], [24, 5], [16, 9]])), [24, 16]);
     assert.deepEqual(rankHeadingSizes(new Map([[20, 1]])), [20]);
+  });
+});
+
+describe("page labels", () => {
+  const band = (text, top) => [{ text, size: 8, top }];
+  const page = (...blocks) => blocks.filter(Boolean);
+  // Roman front matter (iii, iv), a blank page, then chapter 1 whose opener
+  // shows the chapter number "1" at the top and folio "1" at the bottom.
+  const pages = parseBboxHtml(
+    xhtml([
+      page(band("iii", 620), para(100, "Front.")),
+      page(band("iv", 20), para(100, "Front.")),
+      page(para(100, "Blank-ish.")),
+      page([{ text: "1", size: 20, top: 20 }], para(100, "Opener."), band("1", 620)),
+      page(band("2", 20), para(100, "Body.")),
+      page(para(100, "Opener without folio.")),
+      page(band("4", 20), para(100, "Body.")),
+    ]),
+  ).pages;
+
+  it("converts roman numerals both ways", () => {
+    assert.deepEqual(["iii", "xiv", "xl", "mcmxc"].map(romanToInt), [3, 14, 40, 1990]);
+    assert.equal(intToRoman(1994), "mcmxciv");
+  });
+
+  it("reads printed numbers and fills gaps only where neighbours agree", () => {
+    assert.deepEqual(pageLabels(pages), { 1: "iii", 2: "iv", 4: "1", 5: "2", 6: "3", 7: "4" });
   });
 });
 

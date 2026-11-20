@@ -5,6 +5,9 @@
   "license": "BSD-3-Clause",
   "description": "Agent Skill: turn any text PDF into structured Markdown and heading-aware JSONL chunks for LLMs and vector indexes.",
   "type": "module",
+  "exports": {
+    ".": "./scripts/pdf-parse.mjs"
+  },
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "parse": "node scripts/pdf-parse.mjs",

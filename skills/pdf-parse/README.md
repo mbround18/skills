@@ -50,7 +50,7 @@ A chunk:
 
 ```json
 {"id":"field-report:0003","doc":"field-report","title":"Field Report","kind":"text",
- "section":["Field Notes","Supplies"],"pages":[1,2],
+ "section":["Field Notes","Supplies"],"pages":[1,2],"printed":["1","2"],
  "context":"Field Report › Field Notes › Supplies (pp. 1–2)","words":27,
  "text":"Water filters, maps, and a compass are essential. …"}
 ```

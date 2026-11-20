@@ -63,6 +63,7 @@ describe("end to end through pdftotext", { skip: !hasPoppler && "pdftotext not i
     assert.match(supplies.text, /when the weather turns and the trail disappears/);
     assert.deepEqual(supplies.section, ["Field Notes", "Supplies"]);
     assert.deepEqual(supplies.pages, [1, 2]);
+    assert.deepEqual(supplies.printed, ["1", "2"]);
     assert.match(supplies.context, /^Field Report › Field Notes › Supplies \(pp\. 1–2\)$/);
     assert.ok(chunks.some((c) => c.kind === "note" && c.text.includes("Ranger handbook")));
     assert.equal(new Set(chunks.map((c) => c.id)).size, chunks.length);

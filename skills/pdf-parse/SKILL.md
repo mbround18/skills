@@ -25,7 +25,7 @@ Output goes to `<out>/<slug>/` (default `./pdf-parse-out/<slug>/`):
 | File | What it is |
 |---|---|
 | `document.md` | The whole document as Markdown. `#` is the title, detected headings follow as `##`…, `<!-- page N -->` marks page starts, footnotes appear as `> [note] …`. |
-| `chunks.jsonl` | One chunk per line: `id`, `doc`, `title`, `kind` (`text` or `note`), `section` (heading path), `pages` `[from, to]`, `context` (`"Title › Chapter › Section (pp. 12–13)"`), `words`, `text`. |
+| `chunks.jsonl` | One chunk per line: `id`, `doc`, `title`, `kind` (`text` or `note`), `section` (heading path), `pages` `[from, to]` (PDF pages), `printed` `[from, to]` (the page numbers printed on the page, when the PDF has them — cite these), `context` (`"Title › Chapter › Section (pp. 12–13)"`), `words`, `text`. |
 | `manifest.json` | Source file and sha256, page count, metadata, chunk and word counts, detection stats, and `warnings`. |
 
 ## Workflow
@@ -47,7 +47,8 @@ Output goes to `<out>/<slug>/` (default `./pdf-parse-out/<slug>/`):
      citations.
    - *Quick lookup* → `grep -i "<term>" chunks.jsonl` and read the hits'
      `context`.
-5. **Cite** answers with the chunk's `context` (title, section, page).
+5. **Cite** answers with the chunk's `context` (title, section, page),
+   preferring `printed` page numbers when present.
 
 ## Tuning
 
