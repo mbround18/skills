@@ -11,6 +11,6 @@
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "parse": "node scripts/pdf-parse.mjs",
-    "install-skill": "node scripts/install.mjs"
+    "install-skill": "node ../../scripts/install.mjs pdf-parse"
   }
 }

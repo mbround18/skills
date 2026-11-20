@@ -17,9 +17,12 @@ moves forward through the file.
 ## Install
 
 ```sh
-cd skills
-pnpm run install:tomorrow        # symlinks into ~/.claude/skills/tomorrow
+curl -fsSL https://raw.githubusercontent.com/mbround18/skills/main/install.sh | bash -s -- tomorrow
 ```
+
+This clones the repo into `~/.local/share/agent-skills` and links the skill
+into `~/.claude/skills/tomorrow`; run it again to update. From a checkout of this
+repo, `node scripts/install.mjs tomorrow` links your working copy instead.
 
 ## Use
 

@@ -22,17 +22,13 @@ Ask Claude something like "launch claude for ThunderForgeVTT" and it will:
 
 ## Install
 
-From the repo root:
-
 ```sh
-pnpm install
-pnpm run install:launch-project
+curl -fsSL https://raw.githubusercontent.com/mbround18/skills/main/install.sh | bash -s -- launch-project
 ```
 
-This symlinks `skills/launch-project` into `~/.claude/skills/launch-project`,
-so it's available in every Claude Code session on this machine. Because it's
-a symlink, `git pull` in this repo updates the installed skill automatically
-— no reinstall needed after an update.
+This clones the repo into `~/.local/share/agent-skills` and links the skill
+into `~/.claude/skills/launch-project`; run it again to update. From a checkout of this
+repo, `node scripts/install.mjs launch-project` links your working copy instead.
 
 ## Usage
 

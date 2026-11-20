@@ -24,10 +24,6 @@ automatically — it fails the build if any skill is missing a piece.
   same document as `SKILL.md` and should not just restate its frontmatter.
 - **`package.json`** — a valid workspace package with a `name` and a
   `scripts.test` entry.
-- **`scripts/install.mjs`** — symlinks the skill into `~/.claude/skills`.
-  Copy it from any existing skill; every copy must be byte-for-byte
-  identical (each skill stays self-contained, and the governance suite
-  catches drift). `pnpm run install:all` runs all of them.
 - **`tests/`** — at least one `*.test.mjs` file, run via `scripts.test`.
   Use Node's built-in `node:test` / `node:assert` — no test framework
   dependency.
@@ -69,9 +65,11 @@ pnpm --filter launch-project test                    # one skill's tests
 ## Adding a new skill
 
 1. Create `skills/<name>/` with `SKILL.md`, `README.md`, `package.json`
-   (with a `test` script), `scripts/install.mjs` (copied verbatim), and
-   `tests/` containing real tests.
-2. Add an `install:<name>` script to the root `package.json`.
-3. Add a section to the root `README.md`.
-4. Run `pnpm test` from the root — the governance suite will catch anything
+   (with a `test` script), and `tests/` containing real tests. Don't add an
+   installer: the root `scripts/install.mjs <name>` (and `install.sh`, its
+   remote one-liner) installs any skill with a `SKILL.md`, and the
+   governance suite rejects per-skill copies.
+2. Add a section to the root `README.md`, and an Install section to the
+   skill's README using the one-liner.
+3. Run `pnpm test` from the root — the governance suite will catch anything
    missing.

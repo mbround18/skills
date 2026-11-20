@@ -30,11 +30,12 @@ No npm dependencies.
 ## Install
 
 ```sh
-git clone git@github.com:mbround18/skills.git
-cd skills
-pnpm install
-pnpm run install:pdf-parse          # links into ~/.claude/skills
+curl -fsSL https://raw.githubusercontent.com/mbround18/skills/main/install.sh | bash -s -- pdf-parse
 ```
+
+This clones the repo into `~/.local/share/agent-skills` and links the skill
+into `~/.claude/skills/pdf-parse`; run it again to update. From a checkout of this
+repo, `node scripts/install.mjs pdf-parse` links your working copy instead.
 
 ## Use
 

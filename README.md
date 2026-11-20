@@ -6,19 +6,25 @@ that support the format.
 
 ## Install a skill globally
 
-Skills here get symlinked into `~/.claude/skills/<name>`, so once installed
-they're available in every project and every Claude Code session, and a
-`git pull` in this repo updates them everywhere automatically.
+One line, no manual clone (needs git and Node.js 26+):
 
 ```sh
-git clone git@github.com:mbround18/skills.git
-cd skills
-pnpm install
-pnpm run install:all              # every skill, or one: pnpm run install:<name>
+curl -fsSL https://raw.githubusercontent.com/mbround18/skills/main/install.sh | bash -s -- pwa pdf-parse   # one or more skills
+curl -fsSL https://raw.githubusercontent.com/mbround18/skills/main/install.sh | bash -s -- --all           # every skill
+curl -fsSL https://raw.githubusercontent.com/mbround18/skills/main/install.sh | bash -s -- --list          # what's available
 ```
 
-No dependencies are actually needed — `pnpm install` is a no-op today — but
-it's there so adding one later doesn't change the workflow.
+It keeps a shallow clone in `~/.local/share/agent-skills` (`SKILLS_HOME`)
+and symlinks each skill into `~/.claude/skills/<name>` (`CLAUDE_SKILLS_DIR`),
+so the skills are available in every project and session. Run it again to
+update. `SKILLS_BRANCH` picks another branch.
+
+From a checkout of this repo, the same installer links to your working copy,
+so `git pull` updates the installed skills:
+
+```sh
+node scripts/install.mjs pwa      # or --all, --list, --target <dir>
+```
 
 ## Skills
 
@@ -89,9 +95,8 @@ skills/<skill-name>/
 Follow the [Agent Skills specification](https://agentskills.io/specification):
 `name` must match the directory name, lowercase with hyphens, and
 `description` should say both what the skill does and when to use it. Then
-copy `scripts/install.mjs` from any existing skill (the governance suite
-keeps every copy identical), add an `install:<name>` script to the root
-`package.json`, and add a section to this README.
+add a section to this README. No installer per skill: the root
+`scripts/install.mjs` installs anything with a `SKILL.md`.
 
 See [AGENTS.md](AGENTS.md) for the full governance checklist — the root
 `tests/governance.test.mjs` suite enforces it automatically.

@@ -23,11 +23,13 @@ few `<head>` tags.
 
 ## Install
 
-From a checkout of this repo:
-
 ```sh
-node skills/pwa/scripts/install.mjs     # links the skill into ~/.claude/skills
+curl -fsSL https://raw.githubusercontent.com/mbround18/skills/main/install.sh | bash -s -- pwa
 ```
+
+This clones the repo into `~/.local/share/agent-skills` and links the skill
+into `~/.claude/skills/pwa`; run it again to update. From a checkout of this
+repo, `node scripts/install.mjs pwa` links your working copy instead.
 
 Then ask your agent something like "make this app a PWA" or run `/pwa`.
 
