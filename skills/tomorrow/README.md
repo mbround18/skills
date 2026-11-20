@@ -74,7 +74,7 @@ skill follows whichever the repo already does.
 
 ## Requirements
 
-Node.js 18+ and git. No dependencies.
+Node.js 26+ and git. No dependencies.
 
 ## Tests
 

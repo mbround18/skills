@@ -2,7 +2,7 @@
 name: pdf-parse
 description: Converts any text-based PDF (books, papers, manuals, datasheets, reports) into LLM- and index-ready output — clean Markdown with real heading levels and page markers, plus heading-aware JSONL chunks carrying section path, page span and a citation context line. Strips running headers, folios and page numbers, separates footnotes, rejoins hyphenated words and sentences split across pages. Use when the user wants to read, summarise, search, chunk, embed, index or build RAG/a knowledge base from a PDF, or asks for a PDF "in a format an LLM can use".
 license: BSD-3-Clause
-compatibility: Node.js 18+ and pdftotext from poppler-utils. Scanned (image-only) PDFs need OCR first.
+compatibility: Node.js 26+ and pdftotext from poppler-utils. Scanned (image-only) PDFs need OCR first.
 metadata:
   author: mbround18
 user-invocable: true

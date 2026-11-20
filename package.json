@@ -6,7 +6,7 @@
   "description": "mbround18's collection of Claude Code / Agent Skills (agentskills.io spec)",
   "type": "module",
   "engines": {
-    "node": ">=18"
+    "node": ">=26"
   },
   "scripts": {
     "install:launch-project": "node skills/launch-project/scripts/install.mjs",

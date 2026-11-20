@@ -21,7 +21,7 @@ book, a Maxim datasheet and an ST reference manual.
 
 ## Requirements
 
-- Node.js 18 or newer
+- Node.js 26 (current LTS) or newer
 - `pdftotext` from poppler (`apt install poppler-utils` or `brew install poppler`)
 - For scanned PDFs, an OCR step first (e.g. `ocrmypdf`)
 

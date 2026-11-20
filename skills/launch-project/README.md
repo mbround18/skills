@@ -60,7 +60,7 @@ node scripts/launch.mjs <project-name-or-path> [--session-name <name>]
 ## Requirements
 
 - Linux desktop with one of the supported terminal emulators.
-- Node.js 18+.
+- Node.js 26+.
 - The `claude` CLI on `PATH`, with Remote Control access.
 
 ## Development
