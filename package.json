@@ -5,6 +5,7 @@
   "license": "BSD-3-Clause",
   "description": "mbround18's collection of Claude Code / Agent Skills (agentskills.io spec)",
   "type": "module",
+  "packageManager": "pnpm@12.21.0",
   "engines": {
     "node": ">=26"
   },
