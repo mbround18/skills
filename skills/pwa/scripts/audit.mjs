@@ -240,13 +240,36 @@ export function auditDir(dirArg) {
     const start = new URL(mf.start_url, base).pathname;
     checks.push(check("compatible", "start-in-scope", start.startsWith(scope), `start_url ${start} is inside scope ${scope}`, "move start_url inside scope (or widen scope): otherwise launch opens outside the app"));
   }
-  checks.push(check("compatible", "icon-maskable", icons.some((i) => purposesOf(i).includes("maskable")), 'a "maskable" icon for adaptive launchers', 'add a separate icon with purpose "maskable" whose artwork sits inside the central 80% safe zone'));
+  // One icon declared "any maskable" is either padded where it shows as-is or
+  // clipped where it's masked: the maskable icon must be its own file.
+  const combined = icons.filter((i) => purposesOf(i).includes("maskable") && purposesOf(i).includes("any")).map((i) => i.src);
+  const maskable = icons.some((i) => purposesOf(i).includes("maskable") && !purposesOf(i).includes("any"));
+  checks.push(check("compatible", "icon-maskable", maskable && !combined.length, `a separate "maskable" icon for adaptive launchers${combined.length ? ` (declared "any maskable": ${list(combined)})` : ""}`, 'add a separate icon with purpose "maskable" whose artwork sits inside the central 80% safe zone, and give every other icon purpose "any" only'));
   checks.push(check("compatible", "colors", mf.theme_color && mf.background_color, "manifest has theme_color and background_color", "set background_color to the page background and theme_color to the toolbar color"));
   checks.push(check("compatible", "description", mf.description, "manifest has a description", "add a one-sentence description: install dialogs and stores show it"));
   const shots = Array.isArray(mf.screenshots) ? mf.screenshots : [];
   const wide = shots.some((s) => s.form_factor === "wide");
   const narrow = shots.some((s) => s.form_factor !== "wide");
-  checks.push(check("compatible", "screenshots", wide && narrow, `screenshots for wide and narrow screens (${shots.length} found)`, 'add screenshots with form_factor "wide" (desktop) and "narrow" (mobile) for the richer install dialog'));
+  // Chromium drops a screenshot whose file is missing, whose sides fall outside
+  // 320–3840 px, or whose long side is over 2.3× its short side.
+  const shotIssues = [];
+  for (const shot of shots) {
+    const file = manifestFile && resolveRef(root, manifestFile, shot.src);
+    if (!file) continue;
+    if (!existsSync(join(root, file))) {
+      shotIssues.push(`${shot.src} not found`);
+      continue;
+    }
+    const size = extname(file).toLowerCase() === ".png" ? pngSize(readFileSync(join(root, file))) : null;
+    if (!size) continue;
+    const actual = `${size.width}x${size.height}`;
+    const declared = String(shot.sizes ?? "").split(/\s+/).filter(Boolean);
+    if (declared.length && !declared.includes(actual)) shotIssues.push(`${shot.src} is ${actual} but declares ${declared.join(" ")}`);
+    const [short, long] = [size.width, size.height].sort((a, b) => a - b);
+    if (short < 320 || long > 3840) shotIssues.push(`${shot.src} is ${actual}: each side must be 320–3840 px`);
+    else if (long > short * 2.3) shotIssues.push(`${shot.src} is ${actual}: aspect ratio over 2.3`);
+  }
+  checks.push(check("compatible", "screenshots", wide && narrow && !shotIssues.length, `screenshots for wide and narrow screens (${shots.length} found${shotIssues.length ? `; ${list(shotIssues)}` : ""})`, 'add screenshots with form_factor "wide" (desktop) and "narrow" (mobile), 320–3840 px a side, aspect ratio ≤ 2.3, at the sizes they declare'));
   checks.push(check("compatible", "apple-touch-icon", entry.appleTouchIcon, `entry page ${entry.file} has an apple-touch-icon`, '<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png"> (180x180, opaque background) for iOS and iPadOS home screens'));
   checks.push(check("compatible", "theme-color-meta", entry.themeColor, `entry page ${entry.file} has <meta name="theme-color">`, "add a theme-color meta (optionally one per prefers-color-scheme) matching manifest theme_color"));
   const noLang = pages.filter((p) => !p.lang || !p.title).map((p) => p.file);

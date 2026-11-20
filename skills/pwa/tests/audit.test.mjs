@@ -162,6 +162,34 @@ test("the shipped templates, dropped into a build, reach robust", () => {
   assert.equal(r.next, null);
 });
 
+test('an icon declared "any maskable" fails icon-maskable, even beside a separate one', () => {
+  const icons = [
+    { src: "/i192.png", sizes: "192x192", type: "image/png" },
+    { src: "/i512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+  ];
+  const files = { "i192.png": png(192, 192), "i512.png": png(512, 512), "m512.png": png(512, 512) };
+  const combined = auditDir(minimumSite({ ...files, "app.webmanifest": JSON.stringify({ ...MIN_MANIFEST, icons }) }));
+  assert.ok(failing(combined).includes("icon-maskable"));
+  const both = [...icons, { src: "/m512.png", sizes: "512x512", type: "image/png", purpose: "maskable" }];
+  assert.ok(failing(auditDir(minimumSite({ ...files, "app.webmanifest": JSON.stringify({ ...MIN_MANIFEST, icons: both }) }))).includes("icon-maskable"));
+  const separate = [icons[0], { ...icons[1], purpose: "any" }, both[2]];
+  assert.ok(!failing(auditDir(minimumSite({ ...files, "app.webmanifest": JSON.stringify({ ...MIN_MANIFEST, icons: separate }) }))).includes("icon-maskable"));
+});
+
+test("screenshots must exist, match their declared sizes and fit Chromium's limits", () => {
+  const shots = (narrow) => [
+    { src: "/wide.png", sizes: "1280x800", form_factor: "wide" },
+    { src: "/narrow.png", sizes: narrow, form_factor: "narrow" },
+  ];
+  const audit = (narrowFile, declared = "780x1688") =>
+    auditDir(minimumSite({ "wide.png": png(1280, 800), ...(narrowFile && { "narrow.png": narrowFile }), "app.webmanifest": JSON.stringify({ ...MIN_MANIFEST, screenshots: shots(declared) }) }));
+  assert.ok(!failing(audit(png(780, 1688))).includes("screenshots"));
+  assert.ok(failing(audit(null)).includes("screenshots"), "missing file");
+  assert.ok(failing(audit(png(390, 844))).includes("screenshots"), "size differs from declared");
+  assert.ok(failing(audit(png(300, 600), "300x600")).includes("screenshots"), "side under 320");
+  assert.ok(failing(audit(png(400, 1000), "400x1000")).includes("screenshots"), "ratio over 2.3");
+});
+
 test("crossChecks flags two frontends sharing a manifest id", () => {
   const a = auditDir(minimumSite());
   const b = auditDir(minimumSite());

@@ -65,7 +65,11 @@ manifest; it just gets a fast, offline-capable website).
   background so the splash → first paint transition doesn't flash. **(audit)**
 - [ ] **`description` and `screenshots`** (at least one `form_factor: "wide"`
   and one `"narrow"`) — Chromium shows a richer, store-like install dialog
-  with them. **(audit)**
+  with them. It silently drops any whose file is missing, whose `sizes` is
+  wrong, whose sides fall outside 320–3840 px or whose aspect ratio is over
+  2.3. Capture them from the real app (a Playwright script you can rerun)
+  once the page's content has loaded, not just its shell, and keep them out
+  of the service worker's precache. **(audit)**
 - [ ] **`lang` on `<html>` and a real `<title>` on every page** — app
   switchers, screen readers and the install dialog use them. **(audit)**
 - [ ] **Standalone mode has its own navigation.** No browser back button in

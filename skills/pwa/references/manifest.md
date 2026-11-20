@@ -26,7 +26,7 @@ Start from `assets/manifest.webmanifest`.
 | `icons` | `[{src, sizes, type, purpose}]` | 192 and 512 PNG (`any`) required; a separate `maskable` (safe zone: central 80%); optional `monochrome` (alpha only). Design at 1024² with a transparent background |
 | `theme_color` | Title bar / status bar / task switcher color | Mirror in `<meta name="theme-color">`, per color scheme |
 | `background_color` | Splash and window color before CSS loads | Same as the page background |
-| `screenshots` | `[{src, sizes, type, form_factor, label}]` | `wide` for desktop, `narrow` for mobile; enables the richer install UI |
+| `screenshots` | `[{src, sizes, type, form_factor, label}]` | `wide` for desktop, `narrow` for mobile; enables the richer install UI. Each side 320–3840 px, aspect ratio ≤ 2.3, `sizes` must match the file |
 | `description`, `categories` | Install dialog and stores | Optional; lowercase categories |
 
 ## OS integration (see `os-integration.md`)
