@@ -10,6 +10,7 @@
     "node": ">=26"
   },
   "scripts": {
+    "install:all": "pnpm -r --workspace-concurrency=1 exec node scripts/install.mjs",
     "install:launch-project": "node skills/launch-project/scripts/install.mjs",
     "install:pdf-parse": "node skills/pdf-parse/scripts/install.mjs",
     "install:tomorrow": "node skills/tomorrow/scripts/install.mjs",

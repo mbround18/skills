@@ -14,7 +14,7 @@ they're available in every project and every Claude Code session, and a
 git clone git@github.com:mbround18/skills.git
 cd skills
 pnpm install
-pnpm run install:launch-project
+pnpm run install:all              # every skill, or one: pnpm run install:<name>
 ```
 
 No dependencies are actually needed — `pnpm install` is a no-op today — but
@@ -76,8 +76,9 @@ skills/<skill-name>/
 Follow the [Agent Skills specification](https://agentskills.io/specification):
 `name` must match the directory name, lowercase with hyphens, and
 `description` should say both what the skill does and when to use it. Then
-add an `install:<name>` script to the root `package.json` and a section to
-this README.
+copy `scripts/install.mjs` from any existing skill (the governance suite
+keeps every copy identical), add an `install:<name>` script to the root
+`package.json`, and add a section to this README.
 
 See [AGENTS.md](AGENTS.md) for the full governance checklist — the root
 `tests/governance.test.mjs` suite enforces it automatically.

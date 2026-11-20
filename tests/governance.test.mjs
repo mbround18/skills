@@ -39,6 +39,18 @@ describe("repo scaffolding", () => {
   });
 });
 
+describe("install scripts", () => {
+  it("every skill has a scripts/install.mjs, identical across skills", () => {
+    const paths = skillNames.map((n) => join(skillsDir, n, "scripts", "install.mjs"));
+    const missing = paths.filter((p) => !existsSync(p)).map((p) => p.slice(skillsDir.length + 1));
+    assert.deepEqual(missing, [], `missing install scripts: ${missing.join(", ")}`);
+    const [first, ...rest] = paths;
+    const reference = readFileSync(first, "utf8");
+    const drifted = rest.filter((p) => readFileSync(p, "utf8") !== reference).map((p) => p.slice(skillsDir.length + 1));
+    assert.deepEqual(drifted, [], `install.mjs differs from ${first.slice(skillsDir.length + 1)} in: ${drifted.join(", ")} — keep every copy identical`);
+  });
+});
+
 describe("every skill", () => {
   for (const name of skillNames) {
     const dir = join(skillsDir, name);
