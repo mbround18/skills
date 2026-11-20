@@ -1,0 +1,16 @@
+{
+  "name": "pwa",
+  "version": "1.0.0",
+  "private": true,
+  "license": "BSD-3-Clause",
+  "description": "Agent Skill: turn any web frontend into a solid, framework-agnostic Progressive Web App, with a tiered checklist, templates and a static audit.",
+  "type": "module",
+  "exports": {
+    ".": "./scripts/audit.mjs"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "audit": "node scripts/audit.mjs",
+    "install-skill": "node scripts/install.mjs"
+  }
+}

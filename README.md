@@ -48,6 +48,19 @@ numbers and footnotes are separated out; no per-publisher rules.
 node skills/pdf-parse/scripts/pdf-parse.mjs report.pdf [--pages 10-42] [--out dir]
 ```
 
+### [pwa](skills/pwa)
+
+Turns any existing web frontend, in any framework or none, into a solid
+Progressive Web App. It gives the driving factors to decide by, a tiered
+checklist (minimum → fully compatible → robust), dependency-free templates
+(manifest, service worker, update-aware registration, offline page) and an
+audit of built output that reports each frontend's tier and can gate CI.
+Condensed from MDN's PWA guides.
+
+```sh
+node skills/pwa/scripts/audit.mjs dist [more-dist ...] [--require compatible] [--json]
+```
+
 ### [tomorrow](skills/tomorrow)
 
 Writes or resumes `./TOMORROW.md`, a repo's hand-off note: the state of the
