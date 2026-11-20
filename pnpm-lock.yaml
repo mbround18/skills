@@ -9,3 +9,7 @@ importers:
   .: {}
 
   skills/launch-project: {}
+
+  skills/pdf-parse: {}
+
+  skills/tomorrow: {}

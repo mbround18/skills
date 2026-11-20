@@ -10,8 +10,10 @@
   },
   "scripts": {
     "install:launch-project": "node skills/launch-project/scripts/install.mjs",
+    "install:pdf-parse": "node skills/pdf-parse/scripts/install.mjs",
     "install:tomorrow": "node skills/tomorrow/scripts/install.mjs",
     "launch": "node skills/launch-project/scripts/launch.mjs",
+    "pdf-parse": "node skills/pdf-parse/scripts/pdf-parse.mjs",
     "tomorrow": "node skills/tomorrow/scripts/snapshot.mjs",
     "test:governance": "node --test tests/*.test.mjs",
     "test": "pnpm run test:governance && pnpm -r test"

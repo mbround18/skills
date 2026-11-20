@@ -37,6 +37,17 @@ Matches project directory names case-insensitively under `~/development` (or
 `LAUNCH_PROJECT_ROOTS`, colon-separated), so typos in casing don't matter.
 Supports cosmic-term, kitty, alacritty, konsole, gnome-terminal, and xterm.
 
+### [pdf-parse](skills/pdf-parse)
+
+Turns any text PDF into clean Markdown with real heading levels and page
+markers, plus heading-aware JSONL chunks (section path, page span, citation
+line) ready for embeddings, RAG or an agent to read. Running headers, page
+numbers and footnotes are separated out; no per-publisher rules.
+
+```sh
+node skills/pdf-parse/scripts/pdf-parse.mjs report.pdf [--pages 10-42] [--out dir]
+```
+
 ### [tomorrow](skills/tomorrow)
 
 Writes or resumes `./TOMORROW.md`, a repo's hand-off note: the state of the
