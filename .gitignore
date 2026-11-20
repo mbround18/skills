@@ -1,3 +1,7 @@
 node_modules/
 .DS_Store
 *.log
+
+# Local-only: ux-steward is built around a copyrighted book, so it is
+# kept out of the repo. pnpm-workspace.yaml excludes it as well.
+skills/ux-steward/
