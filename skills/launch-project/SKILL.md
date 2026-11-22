@@ -45,6 +45,10 @@ SKILL.md): run from there, or give the script's absolute path.
   known (paths, conventions, decisions the user made), what counts as done,
   and which steps need the user's say-so.
 
+If the script prints a `note:` that the folder isn't trusted yet, tell the
+user: the new window is waiting on Claude Code's trust prompt, and a brief
+only starts once they accept it. Don't accept it for them.
+
 The script resolves the directory, picks the first available terminal
 emulator from its supported list, opens it there running
 `claude --remote-control`, and returns immediately. It does not wait for the

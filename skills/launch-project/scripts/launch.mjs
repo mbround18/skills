@@ -138,6 +138,23 @@ export function parseArgs(argv) {
   return { projectArg, opts };
 }
 
+/**
+ * Whether Claude Code has been told to trust `dir` itself. Trusting a parent
+ * doesn't count: the folder still opens on the trust prompt (checked on
+ * Claude Code 2.x), and a brief waits behind it.
+ */
+export function isTrusted(dir, config = readClaudeConfig()) {
+  return Boolean(config?.projects?.[resolve(dir)]?.hasTrustDialogAccepted);
+}
+
+function readClaudeConfig() {
+  try {
+    return JSON.parse(readFileSync(join(homedir(), ".claude.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
 /** The claude command line: Remote Control on, and the brief (if any) as its first prompt. */
 export function claudeCommand({ sessionName, prompt } = {}) {
   const cmd = ["claude", sessionName ? `--remote-control=${sessionName}` : "--remote-control"];
@@ -182,6 +199,12 @@ export function main() {
   child.unref();
 
   console.log(`launched ${terminal.bin} · ${dir} · claude --remote-control${prompt ? " · with brief" : ""}`);
+  if (!isTrusted(dir)) {
+    console.log(
+      `note: Claude Code hasn't been told to trust ${dir} yet, so the new window opens on the trust prompt` +
+        `${prompt ? " and the brief waits until it's accepted" : ""}. Ask the user to answer it there.`,
+    );
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main();

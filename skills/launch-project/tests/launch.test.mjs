@@ -8,6 +8,7 @@ import { after, before, describe, it } from "node:test";
 
 import {
   claudeCommand,
+  isTrusted,
   findCaseInsensitive,
   parseArgs,
   pickTerminal,
@@ -156,5 +157,18 @@ describe("run as a script", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("isTrusted", () => {
+  const config = { projects: { "/home/u/dev": { hasTrustDialogAccepted: true }, "/home/u/other": { hasTrustDialogAccepted: false } } };
+  it("trusts a folder accepted itself, not one under an accepted parent", () => {
+    assert.equal(isTrusted("/home/u/dev", config), true);
+    assert.equal(isTrusted("/home/u/dev/app", config), false);
+  });
+  it("doesn't trust a folder that was never accepted", () => {
+    assert.equal(isTrusted("/home/u/other", config), false);
+    assert.equal(isTrusted("/srv/x", config), false);
+    assert.equal(isTrusted("/srv/x", null), false);
   });
 });
