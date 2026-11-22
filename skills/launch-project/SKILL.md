@@ -6,7 +6,7 @@ compatibility: Linux desktop with a terminal emulator (cosmic-term preferred; ki
 metadata:
   author: mbround18
 user-invocable: true
-argument-hint: "<project-name-or-path> [--session-name <name>]"
+argument-hint: "<project-name-or-path> [--session-name <name>] [--prompt-file <path>]"
 ---
 
 # launch-project
@@ -26,7 +26,7 @@ this session babysitting all of them.
 ## How to run it
 
 ```bash
-node scripts/launch.mjs <project-name-or-path> [--session-name <name>]
+node scripts/launch.mjs <project-name-or-path> [--session-name <name>] [--prompt-file <path>]
 ```
 
 Paths are relative to this skill's directory (the folder holding this
@@ -38,6 +38,12 @@ SKILL.md): run from there, or give the script's absolute path.
   `ThunderForgeVTT` even if the user typed the casing wrong.
 - `--session-name <name>` — optional; passed through as the Remote Control
   session name. Omit it and Claude auto-names the session from the hostname.
+- `--prompt-file <path>` — optional; the file's text becomes the new
+  session's first prompt, so it starts working on a goal instead of waiting.
+  The file is read at launch, so a scratch file is fine. Since this session
+  never follows up, make the brief self-contained: the goal, what's already
+  known (paths, conventions, decisions the user made), what counts as done,
+  and which steps need the user's say-so.
 
 The script resolves the directory, picks the first available terminal
 emulator from its supported list, opens it there running

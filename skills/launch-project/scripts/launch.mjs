@@ -10,6 +10,7 @@ import {
   existsSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   realpathSync,
   writeFileSync,
 } from "node:fs";
@@ -132,22 +133,29 @@ export function parseArgs(argv) {
   const opts = { sessionName: undefined };
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--session-name") opts.sessionName = rest[++i];
+    else if (rest[i] === "--prompt-file") opts.promptFile = rest[++i];
   }
   return { projectArg, opts };
+}
+
+/** The claude command line: Remote Control on, and the brief (if any) as its first prompt. */
+export function claudeCommand({ sessionName, prompt } = {}) {
+  const cmd = ["claude", sessionName ? `--remote-control=${sessionName}` : "--remote-control"];
+  if (prompt?.trim()) cmd.push(prompt);
+  return cmd;
 }
 
 export function main() {
   const { projectArg, opts } = parseArgs(process.argv.slice(2));
   if (!projectArg) {
-    console.error("usage: launch.mjs <project-name-or-path> [--session-name <name>]");
+    console.error("usage: launch.mjs <project-name-or-path> [--session-name <name>] [--prompt-file <path>]");
     process.exit(1);
   }
 
   const dir = resolveProject(projectArg);
-  const claudeCmd = [
-    "claude",
-    opts.sessionName ? `--remote-control=${opts.sessionName}` : "--remote-control",
-  ];
+  // Read now: the launched session starts later, and the file may be a temp file.
+  const prompt = opts.promptFile ? readFileSync(opts.promptFile, "utf8") : undefined;
+  const claudeCmd = claudeCommand({ sessionName: opts.sessionName, prompt });
   const terminal = pickTerminal();
 
   let env = process.env;
@@ -157,7 +165,7 @@ export function main() {
     const wrapper = join(wrapperDir, "run.sh");
     writeFileSync(
       wrapper,
-      `#!/bin/bash\ncd ${shQuote(dir)} || exec bash\nexec ${claudeCmd.join(" ")}\n`,
+      `#!/bin/bash\ncd ${shQuote(dir)} || exec bash\nexec ${claudeCmd.map(shQuote).join(" ")}\n`,
     );
     chmodSync(wrapper, 0o755);
     env = { ...process.env, SHELL: wrapper };
@@ -173,7 +181,7 @@ export function main() {
   });
   child.unref();
 
-  console.log(`launched ${terminal.bin} · ${dir} · claude --remote-control`);
+  console.log(`launched ${terminal.bin} · ${dir} · claude --remote-control${prompt ? " · with brief" : ""}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main();

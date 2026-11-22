@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
 
 import {
+  claudeCommand,
   findCaseInsensitive,
   parseArgs,
   pickTerminal,
@@ -48,6 +49,31 @@ describe("parseArgs", () => {
       projectArg: "my-project",
       opts: { sessionName: "custom" },
     });
+  });
+
+  it("reads --prompt-file", () => {
+    assert.deepEqual(parseArgs(["p", "--prompt-file", "/tmp/brief.md", "--session-name", "s"]), {
+      projectArg: "p",
+      opts: { sessionName: "s", promptFile: "/tmp/brief.md" },
+    });
+  });
+});
+
+describe("claudeCommand", () => {
+  it("is plain Remote Control without a brief", () => {
+    assert.deepEqual(claudeCommand(), ["claude", "--remote-control"]);
+    assert.deepEqual(claudeCommand({ prompt: "  \n" }), ["claude", "--remote-control"]);
+  });
+
+  it("passes the brief as the first prompt, after the session name", () => {
+    assert.deepEqual(claudeCommand({ sessionName: "x", prompt: "do it" }), ["claude", "--remote-control=x", "do it"]);
+  });
+
+  it("survives the shell wrapper intact: quotes, newlines, $ and backticks", () => {
+    const prompt = "it's a `brief`\nwith $HOME and \"quotes\"";
+    const line = claudeCommand({ prompt }).map(shQuote).join(" ");
+    const out = spawnSync("bash", ["-c", `printf '%s\\0' ${line}`], { encoding: "utf8" }).stdout;
+    assert.deepEqual(out.split("\0").slice(0, -1), ["claude", "--remote-control", prompt]);
   });
 });
 

@@ -39,7 +39,7 @@ Once installed, just ask Claude to launch a project by name:
 Or run it directly:
 
 ```sh
-node scripts/launch.mjs <project-name-or-path> [--session-name <name>]
+node scripts/launch.mjs <project-name-or-path> [--session-name <name>] [--prompt-file <path>]
 ```
 
 - `<project-name-or-path>` — an absolute path, a path relative to a root in
@@ -47,6 +47,8 @@ node scripts/launch.mjs <project-name-or-path> [--session-name <name>]
   matched case-insensitively up to two levels deep under each root.
 - `--session-name <name>` — optional; passed through as the Remote Control
   session name. Omit it and Claude names the session from the hostname.
+- `--prompt-file <path>` — optional; the file's text is the new session's
+  first prompt, so it starts on a goal right away instead of waiting for you.
 
 ### Configuration
 
