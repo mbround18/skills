@@ -19,6 +19,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { STALE_DAYS, cleanUp, describe, diskBytes, findRepos, human, scanRepo } from "./worktrees.mjs";
 
 const DEFAULT_ROOTS = (
   process.env.LAUNCH_PROJECT_ROOTS ?? `${homedir()}/development`
@@ -137,6 +138,7 @@ export function parseArgs(argv) {
     if (rest[i] === "--session-name") opts.sessionName = rest[++i];
     else if (rest[i] === "--prompt-file") opts.promptFile = rest[++i];
     else if (rest[i] === "--force") opts.force = true;
+    else if (rest[i] === "--prune") opts.prune = true;
   }
   return { projectArg, opts };
 }
@@ -379,7 +381,51 @@ export function closeSession(key, { force = false, sessions = listSessions() } =
   const d = describeSession(s);
   const report = closeReport({ unsent: d.unsent, git: gitState(s.dir), containers: composeContainers(s.dir) });
   if (report.blockers.length && !force) return { closed: false, session: d, ...report };
-  return { closed: stop(s), session: d, ...report };
+  const closed = stop(s);
+  return { closed, session: d, ...report, worktree: closed ? closeWorktree(s.dir) : undefined };
+}
+
+/**
+ * After a session closes, tidy its repo's worktrees: remove the session's own
+ * worktree and any other unused one whose work is merged (and its merged
+ * branch), and drop registrations whose folder is gone. Clean worktrees that
+ * are merely idle are only suggested. Returns one line per thing done or kept.
+ */
+export function closeWorktree(dir) {
+  const all = scanRepo(dir);
+  if (!all) return undefined;
+  const repo = all[0].path;
+  const own = all.find((w) => !w.main && (dir === w.path || dir.startsWith(`${w.path}/`)));
+  const lines = [];
+  let freed = 0;
+  let pruned = false;
+  for (const wt of all.filter((w) => !w.main)) {
+    const merged = wt.action === "remove+branch" || (wt.action === "remove" && /^merged/.test(wt.reason));
+    if (wt.action === "prune") {
+      if (!pruned) cleanUp(wt);
+      pruned = true;
+      continue;
+    }
+    if (!merged) {
+      if (wt === own) lines.push(`kept worktree ${wt.path}: ${wt.reason}`);
+      continue;
+    }
+    const bytes = diskBytes(wt.path);
+    const r = cleanUp(wt);
+    if (r.ok) freed += bytes ?? 0;
+    lines.push(r.ok ? `worktree ${wt.path} ${r.note} · freed ${human(bytes)}` : `kept worktree ${wt.path}: ${r.note}`);
+  }
+  if (pruned) lines.push(`pruned stale worktree registrations in ${repo}`);
+  const idle = all.filter((w) => w.action === "remove");
+  const idleLeft = idle.filter((w) => !/^merged/.test(w.reason));
+  if (idleLeft.length) {
+    lines.push(
+      `note: ${idleLeft.length} clean worktree${idleLeft.length === 1 ? "" : "s"} idle ${STALE_DAYS}+ days in ${repo}; ` +
+        `to remove (branches kept): node scripts/launch.mjs worktrees ${repo} --prune`,
+    );
+  }
+  if (freed && lines.length > 1) lines.push(`freed ${human(freed)} in total`);
+  return { lines };
 }
 
 /** Waits up to `ms` for a session to show its Remote Control link or the trust prompt. */
@@ -477,11 +523,43 @@ function printList() {
   }
 }
 
+function printWorktrees(projectArg, prune) {
+  const repos = projectArg ? [resolveProject(projectArg)] : findRepos(DEFAULT_ROOTS);
+  let reclaimable = 0;
+  let actionable = 0;
+  let freed = 0;
+  let shown = 0;
+  for (const repo of repos) {
+    const all = scanRepo(repo);
+    if (!all || (all.length < 2 && !projectArg)) continue;
+    shown++;
+    console.log(all[0].path);
+    for (const wt of all.filter((w) => !w.main)) {
+      const bytes = wt.action === "prune" ? undefined : diskBytes(wt.path);
+      console.log(describe(wt, bytes));
+      if (wt.action === "keep") continue;
+      actionable++;
+      reclaimable += bytes ?? 0;
+      if (!prune) continue;
+      const r = cleanUp(wt);
+      console.log(`         → ${r.note}`);
+      if (r.ok) freed += bytes ?? 0;
+    }
+  }
+  if (!shown) return console.log("no linked worktrees found");
+  if (prune) console.log(`freed ${human(freed)}`);
+  else if (actionable) {
+    console.log(`${actionable} to clean up, ${human(reclaimable)} reclaimable · run with --prune to remove them`);
+  }
+  else console.log("nothing to clean up");
+}
+
 const USAGE = [
   "usage: launch.mjs <project-name-or-path> [--session-name <name>] [--prompt-file <path>]",
   "       launch.mjs list",
   "       launch.mjs close <name> [--force]",
   "       launch.mjs trust <name>",
+  "       launch.mjs worktrees [project] [--prune]",
 ].join("\n");
 
 export function main() {
@@ -493,6 +571,9 @@ export function main() {
   }
   try {
     if (projectArg === "list") return printList();
+    if (projectArg === "worktrees") {
+      return printWorktrees(target && !target.startsWith("--") ? target : undefined, opts.prune);
+    }
     if ((projectArg === "close" || projectArg === "trust") && (!target || target.startsWith("--"))) {
       console.error(USAGE);
       process.exit(1);
@@ -511,6 +592,7 @@ export function main() {
         process.exit(2);
       }
       console.log(r.closed ? `closed · ${target}` : `still running after SIGTERM: ${target} (pid ${r.session.pid})`);
+      for (const line of r.worktree?.lines ?? []) console.log(line);
       if (!r.closed) process.exit(1);
       return;
     }

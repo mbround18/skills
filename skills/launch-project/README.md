@@ -28,7 +28,14 @@ It also manages what it launched:
   from your phone can actually connect. Claude only does this when you say so.
 - "close the offroad session": stops it, but first checks for text typed and
   never sent, uncommitted changes and unpushed commits, and asks before
-  throwing those away. Leftover containers are reported, not removed.
+  throwing those away. Leftover containers are reported, not removed. Then it
+  tidies the repo's git worktrees: the session's own and any other unused
+  one whose work is merged are removed, with their merged branches.
+- "clean up old worktrees": lists every worktree with its size and a
+  verdict, and removes the ones that are merged, or clean and idle for two
+  weeks (branch kept). Anything with uncommitted changes, something running
+  in it, or an ignored file a build wouldn't recreate (like `.env`) stays,
+  and it says why.
 
 ## Install
 
@@ -53,6 +60,7 @@ node scripts/launch.mjs <project-name-or-path> [--session-name <name>] [--prompt
 node scripts/launch.mjs list
 node scripts/launch.mjs close <name> [--force]
 node scripts/launch.mjs trust <name>
+node scripts/launch.mjs worktrees [project] [--prune]
 ```
 
 - `<project-name-or-path>`: an absolute path, a path relative to a root in
@@ -64,6 +72,8 @@ node scripts/launch.mjs trust <name>
   first prompt, so it starts on a goal right away instead of waiting for you.
 - `close` exits 2 without stopping anything when the session has unsent
   input or unfinished git work; `--force` closes it anyway.
+- `worktrees` without `--prune` only reports. With a project it looks at that
+  repo; without one, at every repo under `LAUNCH_PROJECT_ROOTS`.
 
 Attach to a session from a terminal with `tmux attach -t <name>`.
 
@@ -71,6 +81,8 @@ Attach to a session from a terminal with `tmux attach -t <name>`.
 
 - `LAUNCH_PROJECT_ROOTS` — colon-separated list of directories to search for
   projects by name. Defaults to `~/development`.
+- `LAUNCH_PROJECT_STALE_DAYS`: how long a clean, unmerged worktree has to
+  sit idle before `worktrees` calls it stale. Defaults to 14.
 
 ## Requirements
 

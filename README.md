@@ -35,11 +35,13 @@ tmux session with a terminal window on it, and hands back the Remote Control
 link. You can fan work out across projects and pick it up from your phone.
 It can also list the sessions it launched, answer a new folder's trust prompt
 (which otherwise blocks Remote Control), and close a session once it has
-checked for unsent input and unpushed work.
+checked for unsent input and unpushed work. Closing also removes merged git
+worktrees, and `worktrees --prune` clears merged or long-idle ones across
+your repos, so checkouts and their build output don't keep eating disk.
 
 ```sh
 node skills/launch-project/scripts/launch.mjs <project-name-or-path> [--session-name <name>] [--prompt-file <path>]
-node skills/launch-project/scripts/launch.mjs list | close <name> [--force] | trust <name>
+node skills/launch-project/scripts/launch.mjs list | close <name> [--force] | trust <name> | worktrees [project] [--prune]
 ```
 
 Matches project directory names case-insensitively under `~/development` (or
