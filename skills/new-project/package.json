@@ -1,0 +1,12 @@
+{
+  "name": "new-project",
+  "version": "1.0.0",
+  "private": true,
+  "license": "BSD-3-Clause",
+  "description": "Agent Skill: scaffolds a new project in one of our common layouts (Rust, Rust + React, React) using the upstream generators, plus our workspace, gc, Docker and docs conventions.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "install-skill": "node ../../scripts/install.mjs new-project"
+  }
+}

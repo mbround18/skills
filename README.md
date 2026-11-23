@@ -48,6 +48,20 @@ Matches project directory names case-insensitively under `~/development` (or
 `LAUNCH_PROJECT_ROOTS`, colon-separated), so typos in casing don't matter.
 Supports cosmic-term, kitty, alacritty, konsole, gnome-terminal, and xterm.
 
+### [new-project](skills/new-project)
+
+Scaffolds a new project in one of our common layouts: `rust`, `rust-react`
+(an Axum server serving a Vite React TS app) or `web`. The code comes from the
+upstream generators (`cargo new`, `cargo add`, `pnpm init`, `create-vite`), so
+there are no templates to maintain; it adds only our conventions on top:
+workspaces split into `apps/` and `crates/`/`packages/`, a Makefile whose build
+runs `gc`, multi-stage Docker with cargo-chef, compose with a restart policy
+that defaults to `no`, a licence and docs.
+
+```sh
+node skills/new-project/scripts/new.mjs <name> --layout <rust|rust-react|web> [--dir <parent>] [--dry-run]
+```
+
 ### [pdf-parse](skills/pdf-parse)
 
 Turns any text PDF into clean Markdown with real heading levels and page
