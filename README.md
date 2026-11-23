@@ -30,13 +30,16 @@ node scripts/install.mjs pwa      # or --all, --list, --target <dir>
 
 ### [launch-project](skills/launch-project)
 
-Opens a new, fully detached terminal window running `claude --remote-control`
-in another project's directory — so you can fan out work across projects
-without any one Claude Code session tracking, waiting on, or messaging the
-others.
+Starts `claude --remote-control` in another project's directory, in a named
+tmux session with a terminal window on it, and hands back the Remote Control
+link. You can fan work out across projects and pick it up from your phone.
+It can also list the sessions it launched, answer a new folder's trust prompt
+(which otherwise blocks Remote Control), and close a session once it has
+checked for unsent input and unpushed work.
 
 ```sh
-node skills/launch-project/scripts/launch.mjs <project-name-or-path> [--session-name <name>]
+node skills/launch-project/scripts/launch.mjs <project-name-or-path> [--session-name <name>] [--prompt-file <path>]
+node skills/launch-project/scripts/launch.mjs list | close <name> [--force] | trust <name>
 ```
 
 Matches project directory names case-insensitively under `~/development` (or

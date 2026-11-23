@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "license": "BSD-3-Clause",
-  "description": "Agent Skill: opens a detached terminal running claude --remote-control in another project's directory.",
+  "description": "Agent Skill: launches claude --remote-control in another project's directory in tmux, and lists or closes the sessions it launched.",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",

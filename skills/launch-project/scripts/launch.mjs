@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// Opens a new terminal window running `claude --remote-control` in a project
-// directory, then exits. The spawned terminal is fully detached (its own
-// process group, stdio ignored, unref'd) — this process, and whatever called
-// it, never track or wait on the session it starts.
+// Starts `claude --remote-control` in a project directory, inside a named tmux
+// session (when tmux is installed) with a terminal window attached to it, then
+// exits. tmux is what makes a launched session reachable afterwards: `list`
+// reads its screen, `trust` answers the folder-trust prompt, `close` stops it.
+// The window is fully detached (its own process group, stdio ignored, unref'd).
 
 import { spawn, spawnSync } from "node:child_process";
 import {
@@ -11,11 +12,12 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_ROOTS = (
@@ -134,6 +136,7 @@ export function parseArgs(argv) {
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--session-name") opts.sessionName = rest[++i];
     else if (rest[i] === "--prompt-file") opts.promptFile = rest[++i];
+    else if (rest[i] === "--force") opts.force = true;
   }
   return { projectArg, opts };
 }
@@ -162,48 +165,359 @@ export function claudeCommand({ sessionName, prompt } = {}) {
   return cmd;
 }
 
-export function main() {
-  const { projectArg, opts } = parseArgs(process.argv.slice(2));
-  if (!projectArg) {
-    console.error("usage: launch.mjs <project-name-or-path> [--session-name <name>] [--prompt-file <path>]");
-    process.exit(1);
+// ---------------------------------------------------------------------------
+// tmux-backed sessions: launch, list, trust, close
+// ---------------------------------------------------------------------------
+
+/** Marks a tmux session as one this script started; its value is the project dir. */
+const TAG = "@launch-project";
+/** The Remote Control link, saved once seen: Claude Code redraws in place, so it scrolls away. */
+const URL_TAG = "@launch-project-url";
+
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/** Runs tmux, on a private server when LAUNCH_PROJECT_TMUX_SOCKET is set (tests use that). */
+export function tmux(args, socket = process.env.LAUNCH_PROJECT_TMUX_SOCKET) {
+  return spawnSync("tmux", [...(socket ? ["-L", socket] : []), ...args], { encoding: "utf8" });
+}
+
+function tmuxPrefix(socket = process.env.LAUNCH_PROJECT_TMUX_SOCKET) {
+  return ["tmux", ...(socket ? ["-L", socket] : [])];
+}
+
+/** A tmux- and Remote-Control-safe session name: the given name, or the folder's. */
+export function sessionBaseName(sessionName, dir) {
+  const raw = sessionName || basename(dir);
+  return raw.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "session";
+}
+
+/** `base`, or `base-2`, `base-3`… when that name is taken. */
+export function uniqueName(base, taken) {
+  const used = new Set(taken);
+  if (!used.has(base)) return base;
+  for (let n = 2; ; n++) if (!used.has(`${base}-${n}`)) return `${base}-${n}`;
+}
+
+const ESC = /\x1b\[[0-9;?]*[A-Za-z]/g;
+
+/** A line's visible text, skipping what's drawn dim (SGR 2): placeholders and hints. */
+export function brightText(rawLine) {
+  let dim = false;
+  let out = "";
+  for (const tok of rawLine.match(/\x1b\[[0-9;?]*[A-Za-z]|[^\x1b]/gu) ?? []) {
+    const sgr = tok.match(/^\x1b\[([0-9;]*)m$/);
+    if (sgr) {
+      for (const code of sgr[1].split(";")) {
+        if (code === "2") dim = true;
+        else if (code === "" || code === "0" || code === "22") dim = false;
+      }
+    } else if (!tok.startsWith("\x1b") && !dim) out += tok;
   }
+  return out;
+}
 
-  const dir = resolveProject(projectArg);
-  // Read now: the launched session starts later, and the file may be a temp file.
-  const prompt = opts.promptFile ? readFileSync(opts.promptFile, "utf8") : undefined;
-  const claudeCmd = claudeCommand({ sessionName: opts.sessionName, prompt });
-  const terminal = pickTerminal();
+/**
+ * What a Claude Code screen shows: the trust prompt, a Remote Control link,
+ * and any text typed into the input box but not sent. Pass the screen with
+ * its escape codes (capture-pane -e). The input box is the `❯` line just
+ * below a horizontal rule (dialog choices also start with `❯`, but not under
+ * a rule), and its placeholder is drawn dim, so only bright text counts.
+ */
+export function parseScreen(raw) {
+  const rawLines = raw.split("\n");
+  const lines = rawLines.map((l) => l.replace(ESC, ""));
+  const text = lines.join("\n");
+  const trustPrompt = /Yes, I trust this folder/.test(text) && /Enter to confirm/.test(text);
+  let unsent = "";
+  for (let i = 1; i < lines.length; i++) {
+    if (/^\s*❯/.test(lines[i]) && /^\s*─{10,}/.test(lines[i - 1])) {
+      unsent = brightText(rawLines[i]).replace(/^\s*❯\s?/, "").trim();
+    }
+  }
+  const url = [...text.matchAll(/https:\/\/claude\.ai\/code\/session_[A-Za-z0-9]+/g)].at(-1)?.[0];
+  return { trustPrompt, unsent: trustPrompt ? "" : unsent, url };
+}
 
+/** Whether argv is a `claude --remote-control` command, and its session name. */
+export function parseClaudeArgv(argv) {
+  if (basename(argv[0] ?? "") !== "claude") return null;
+  const flag = argv.find((a) => a === "--remote-control" || a.startsWith("--remote-control="));
+  if (!flag) return null;
+  return { name: flag.includes("=") ? flag.slice(flag.indexOf("=") + 1) : undefined };
+}
+
+function screen(name, history = false) {
+  const r = tmux(["capture-pane", "-p", "-e", "-J", ...(history ? ["-S", "-2000"] : []), "-t", `=${name}:`]);
+  return r.status === 0 ? r.stdout : "";
+}
+
+function elapsed(pid) {
+  const r = spawnSync("ps", ["-o", "etimes=", "-p", String(pid)], { encoding: "utf8" });
+  const secs = Number.parseInt(r.stdout, 10);
+  if (!Number.isFinite(secs)) return undefined;
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return h ? `${h}h${String(m).padStart(2, "0")}m` : `${m}m`;
+}
+
+/**
+ * Running sessions: the tmux sessions this script launched, plus any other
+ * `claude --remote-control` process (started in a plain window, so its screen
+ * can't be read).
+ */
+export function listSessions() {
+  const sessions = [];
+  // Every tmux pane, so a claude started in tmux by hand still counts as readable.
+  const panes = new Map();
+  const r = tmux(["list-panes", "-a", "-F", `#{pane_pid}\t#{session_name}\t#{${TAG}}\t#{${URL_TAG}}`]);
+  if (r.status === 0) {
+    for (const line of r.stdout.trim().split("\n").filter(Boolean)) {
+      const [pid, name, dir, url] = line.split("\t");
+      panes.set(Number(pid), name);
+      if (dir) sessions.push({ kind: "tmux", name, dir, pid: Number(pid), url: url || undefined });
+    }
+  }
+  const tmuxPids = new Set(sessions.map((s) => s.pid));
+  let pids = [];
+  try {
+    pids = readdirSync("/proc").filter((d) => /^\d+$/.test(d)).map(Number);
+  } catch {}
+  for (const pid of pids) {
+    if (tmuxPids.has(pid)) continue;
+    let argv, dir;
+    try {
+      argv = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean);
+      dir = readlinkSync(`/proc/${pid}/cwd`);
+    } catch {
+      continue;
+    }
+    const claude = parseClaudeArgv(argv);
+    if (!claude) continue;
+    if (panes.has(pid)) sessions.push({ kind: "tmux", name: panes.get(pid), dir, pid });
+    else sessions.push({ kind: "window", name: claude.name ?? `pid-${pid}`, dir, pid });
+  }
+  return sessions;
+}
+
+/** What a session is doing, as far as its screen shows. */
+export function describeSession(s) {
+  const info = { ...s, age: elapsed(s.pid) };
+  if (s.kind !== "tmux") return { ...info, state: "running in a plain window (screen not readable)" };
+  const now = parseScreen(screen(s.name));
+  return {
+    ...info,
+    state: now.trustPrompt ? "waiting on the trust prompt" : "running",
+    unsent: now.unsent,
+    url: parseScreen(screen(s.name, true)).url ?? s.url,
+  };
+}
+
+/** Uncommitted changes and commits on no remote, or null outside a git repo. */
+export function gitState(dir) {
+  const git = (...a) => spawnSync("git", ["-C", dir, ...a], { encoding: "utf8" });
+  const status = git("status", "--porcelain");
+  if (status.status !== 0) return null;
+  const dirty = status.stdout.split("\n").filter(Boolean).length;
+  const hasRemote = git("remote").stdout.trim() !== "";
+  const unpushed = hasRemote ? Number.parseInt(git("rev-list", "--count", "HEAD", "--not", "--remotes").stdout, 10) || 0 : null;
+  return { dirty, unpushed, hasRemote };
+}
+
+/** Running compose containers whose project lives in `dir`. Empty when docker isn't there. */
+export function composeContainers(dir) {
+  const r = spawnSync("docker", ["ps", "--format", '{{.Names}}\t{{.Label "com.docker.compose.project.working_dir"}}'], {
+    encoding: "utf8",
+  });
+  if (r.status !== 0) return [];
+  return r.stdout
+    .split("\n")
+    .map((l) => l.split("\t"))
+    .filter(([name, wd]) => name && wd && (wd === dir || wd.startsWith(`${dir}/`)))
+    .map(([name]) => name);
+}
+
+/**
+ * What closing would throw away or leave behind. `blockers` stop a close
+ * without --force (unsent input is lost; unfinished git work is the session's
+ * to finish); `leftovers` stay running and are only reported.
+ */
+export function closeReport({ unsent, git, containers }) {
+  const blockers = [];
+  if (unsent) blockers.push(`unsent input: "${unsent}"`);
+  if (git?.dirty) blockers.push(`${git.dirty} uncommitted change${git.dirty === 1 ? "" : "s"}`);
+  if (git?.unpushed) blockers.push(`${git.unpushed} commit${git.unpushed === 1 ? "" : "s"} not on any remote`);
+  const leftovers = containers.length ? [`containers still running (not removed): ${containers.join(", ")}`] : [];
+  return { blockers, leftovers };
+}
+
+export function findSession(sessions, key) {
+  return sessions.find((s) => s.name === key || String(s.pid) === key);
+}
+
+function stop(s) {
+  if (s.kind === "tmux") tmux(["kill-session", "-t", `=${s.name}`]);
+  else {
+    try {
+      process.kill(s.pid, "SIGTERM");
+    } catch {}
+  }
+  for (let i = 0; i < 20; i++) {
+    try {
+      process.kill(s.pid, 0);
+    } catch {
+      return true;
+    }
+    sleep(250);
+  }
+  return false;
+}
+
+/** Closes a session; refuses (returns the report) when there are blockers and no `force`. */
+export function closeSession(key, { force = false, sessions = listSessions() } = {}) {
+  const s = findSession(sessions, key);
+  if (!s) throw new Error(`no launched session named "${key}" (see: launch.mjs list)`);
+  const d = describeSession(s);
+  const report = closeReport({ unsent: d.unsent, git: gitState(s.dir), containers: composeContainers(s.dir) });
+  if (report.blockers.length && !force) return { closed: false, session: d, ...report };
+  return { closed: stop(s), session: d, ...report };
+}
+
+/** Waits up to `ms` for a session to show its Remote Control link or the trust prompt. */
+export function waitForStart(name, ms = 30000) {
+  for (let t = 0; t < ms; t += 500) {
+    const now = parseScreen(screen(name, true));
+    if (now.url) tmux(["set-option", "-t", `=${name}:`, URL_TAG, now.url]);
+    if (now.url || now.trustPrompt) return now;
+    sleep(500);
+  }
+  return parseScreen(screen(name, true));
+}
+
+/** Accepts the trust prompt in a tmux session. Only on the user's explicit OK. */
+export function acceptTrust(name) {
+  if (!parseScreen(screen(name)).trustPrompt) throw new Error(`"${name}" isn't showing the trust prompt`);
+  tmux(["send-keys", "-t", `=${name}:`, "Down"]);
+  sleep(500);
+  if (!/❯\s*Yes, I trust this folder/.test(screen(name).replace(ESC, ""))) {
+    throw new Error(`couldn't select "Yes, I trust this folder" in "${name}"; nothing was confirmed`);
+  }
+  tmux(["send-keys", "-t", `=${name}:`, "Enter"]);
+  return waitForStart(name, 30000);
+}
+
+function openWindow(dir, cmd) {
+  if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return undefined;
+  let terminal;
+  try {
+    terminal = pickTerminal();
+  } catch {
+    return undefined;
+  }
   let env = process.env;
   let args;
   if (terminal.needsWrapper) {
     const wrapperDir = mkdtempSync(join(tmpdir(), "launch-project-"));
     const wrapper = join(wrapperDir, "run.sh");
-    writeFileSync(
-      wrapper,
-      `#!/bin/bash\ncd ${shQuote(dir)} || exec bash\nexec ${claudeCmd.map(shQuote).join(" ")}\n`,
-    );
+    writeFileSync(wrapper, `#!/bin/bash\ncd ${shQuote(dir)} || exec bash\nexec ${cmd.map(shQuote).join(" ")}\n`);
     chmodSync(wrapper, 0o755);
     env = { ...process.env, SHELL: wrapper };
     args = terminal.args(dir);
   } else {
-    args = terminal.args(dir, claudeCmd);
+    args = terminal.args(dir, cmd);
+  }
+  spawn(terminal.bin, args, { detached: true, stdio: "ignore", env }).unref();
+  return terminal.bin;
+}
+
+function launch(projectArg, opts) {
+  const dir = resolveProject(projectArg);
+  // Read now: the launched session starts later, and the file may be a temp file.
+  const prompt = opts.promptFile ? readFileSync(opts.promptFile, "utf8") : undefined;
+  const brief = prompt?.trim() ? " · with brief" : "";
+
+  if (!which("tmux")) {
+    const claudeCmd = claudeCommand({ sessionName: opts.sessionName, prompt });
+    const bin = openWindow(dir, claudeCmd);
+    if (!bin) throw new Error("no tmux and no terminal window available to launch in");
+    console.log(`launched ${bin} · ${dir} · claude --remote-control${brief}`);
+    console.log("note: tmux isn't installed, so this session can't be listed, closed or have its trust prompt answered from here.");
+    if (!isTrusted(dir)) {
+      console.log(`note: ${dir} isn't trusted yet; the window opens on the trust prompt. Ask the user to answer it there.`);
+    }
+    return;
   }
 
-  const child = spawn(terminal.bin, args, {
-    detached: true,
-    stdio: "ignore",
-    env,
-  });
-  child.unref();
+  const taken = tmux(["list-sessions", "-F", "#{session_name}"]).stdout?.split("\n").filter(Boolean) ?? [];
+  const name = uniqueName(sessionBaseName(opts.sessionName, dir), taken);
+  const claudeCmd = claudeCommand({ sessionName: name, prompt });
+  const started = tmux(["new-session", "-d", "-s", name, "-c", dir, "-x", "200", "-y", "50", ...claudeCmd]);
+  if (started.status !== 0) throw new Error(`tmux couldn't start the session: ${started.stderr.trim()}`);
+  tmux(["set-option", "-t", `=${name}:`, TAG, dir]);
 
-  console.log(`launched ${terminal.bin} · ${dir} · claude --remote-control${prompt ? " · with brief" : ""}`);
-  if (!isTrusted(dir)) {
+  const bin = openWindow(dir, [...tmuxPrefix(), "attach-session", "-t", `=${name}`]);
+  console.log(`launched ${name} · ${dir} · claude --remote-control=${name}${brief} · ${bin ? `window: ${bin}` : "no window"}`);
+  if (!bin) console.log(`attach locally with: tmux attach -t ${name}`);
+
+  const now = waitForStart(name);
+  if (now.url) console.log(`url: ${now.url}`);
+  else if (now.trustPrompt) {
     console.log(
-      `note: Claude Code hasn't been told to trust ${dir} yet, so the new window opens on the trust prompt` +
-        `${prompt ? " and the brief waits until it's accepted" : ""}. Ask the user to answer it there.`,
+      `note: ${dir} isn't trusted yet, so the session is on the trust prompt${brief ? " and the brief waits behind it" : ""}. ` +
+        `Ask the user. With their explicit OK: node scripts/launch.mjs trust ${name}`,
     );
+  } else console.log(`note: no Remote Control link yet; node scripts/launch.mjs list shows it once it's up.`);
+}
+
+function printList() {
+  const sessions = listSessions().map(describeSession);
+  if (!sessions.length) return console.log("no launched sessions running");
+  for (const s of sessions) {
+    const parts = [s.name, s.dir, s.age && `up ${s.age}`, s.state, s.unsent && `unsent input: "${s.unsent}"`, s.url];
+    console.log(parts.filter(Boolean).join(" · "));
+  }
+}
+
+const USAGE = [
+  "usage: launch.mjs <project-name-or-path> [--session-name <name>] [--prompt-file <path>]",
+  "       launch.mjs list",
+  "       launch.mjs close <name> [--force]",
+  "       launch.mjs trust <name>",
+].join("\n");
+
+export function main() {
+  const { projectArg, opts } = parseArgs(process.argv.slice(2));
+  const target = process.argv[3];
+  if (!projectArg) {
+    console.error(USAGE);
+    process.exit(1);
+  }
+  try {
+    if (projectArg === "list") return printList();
+    if ((projectArg === "close" || projectArg === "trust") && (!target || target.startsWith("--"))) {
+      console.error(USAGE);
+      process.exit(1);
+    }
+    if (projectArg === "trust") {
+      const now = acceptTrust(target);
+      console.log(`trusted · ${target}${now.url ? ` · url: ${now.url}` : " · no Remote Control link yet"}`);
+      return;
+    }
+    if (projectArg === "close") {
+      const r = closeSession(target, { force: opts.force });
+      for (const b of r.blockers) console.log(`${r.closed ? "left behind" : "would lose"}: ${b}`);
+      for (const l of r.leftovers) console.log(`note: ${l}`);
+      if (!r.closed && r.blockers.length && !opts.force) {
+        console.log(`not closed: ${target}. Ask the user; to close anyway: node scripts/launch.mjs close ${target} --force`);
+        process.exit(2);
+      }
+      console.log(r.closed ? `closed · ${target}` : `still running after SIGTERM: ${target} (pid ${r.session.pid})`);
+      if (!r.closed) process.exit(1);
+      return;
+    }
+    launch(projectArg, opts);
+  } catch (err) {
+    console.error(`error: ${err.message}`);
+    process.exit(1);
   }
 }
 

@@ -1,13 +1,20 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
 
 import {
+  brightText,
   claudeCommand,
+  closeReport,
+  gitState,
+  parseClaudeArgv,
+  parseScreen,
+  sessionBaseName,
+  uniqueName,
   isTrusted,
   findCaseInsensitive,
   parseArgs,
@@ -170,5 +177,140 @@ describe("isTrusted", () => {
     assert.equal(isTrusted("/home/u/other", config), false);
     assert.equal(isTrusted("/srv/x", config), false);
     assert.equal(isTrusted("/srv/x", null), false);
+  });
+});
+
+describe("session names", () => {
+  it("uses the given name, else the folder's, made safe for tmux", () => {
+    assert.equal(sessionBaseName("valheim-pr1596", "/x"), "valheim-pr1596");
+    assert.equal(sessionBaseName(undefined, "/home/u/valheim.boop.ninja"), "valheim-boop-ninja");
+    assert.equal(sessionBaseName("a:b c", "/x"), "a-b-c");
+  });
+  it("adds a number when the name is taken", () => {
+    assert.equal(uniqueName("web", []), "web");
+    assert.equal(uniqueName("web", ["web", "web-2"]), "web-3");
+  });
+});
+
+describe("parseScreen", () => {
+  const rule = "─".repeat(40);
+  it("reads typed text in the input box, not its dim placeholder", () => {
+    assert.equal(parseScreen(`${rule}\n❯ hardcode it too\n${rule}`).unsent, "hardcode it too");
+    const dimPlaceholder = `${rule}\n\x1b[38;5;246m❯ \x1b[2m\x1b[39mPress up to edit queued messages\x1b[0m\n${rule}`;
+    assert.equal(parseScreen(dimPlaceholder).unsent, "");
+    assert.equal(parseScreen(`${rule}\n❯ \n${rule}`).unsent, "");
+  });
+  it("sees the trust prompt, and doesn't mistake its choices for input", () => {
+    const trust = `${rule}\n Accessing workspace:\n ❯ No, exit\n   Yes, I trust this folder\n Enter to confirm · Esc to cancel`;
+    assert.deepEqual(parseScreen(trust), { trustPrompt: true, unsent: "", url: undefined });
+  });
+  it("finds the Remote Control link", () => {
+    const s = "/remote-control is active · Continue here, on your phone, or at https://claude.ai/code/session_01AbC";
+    assert.equal(parseScreen(s).url, "https://claude.ai/code/session_01AbC");
+  });
+  it("brightText drops dim runs and escape codes", () => {
+    assert.equal(brightText("a\x1b[2mdim\x1b[22mb\x1b[1;31mc"), "abc");
+  });
+});
+
+describe("parseClaudeArgv", () => {
+  it("matches claude --remote-control and reads its name", () => {
+    assert.deepEqual(parseClaudeArgv(["claude", "--remote-control=x", "brief"]), { name: "x" });
+    assert.deepEqual(parseClaudeArgv(["/usr/bin/claude", "--remote-control"]), { name: undefined });
+  });
+  it("ignores other processes, including shells that mention it", () => {
+    assert.equal(parseClaudeArgv(["claude"]), null);
+    assert.equal(parseClaudeArgv(["bash", "-c", "claude --remote-control=x"]), null);
+  });
+});
+
+describe("closeReport", () => {
+  it("blocks on unsent input and unfinished git work, reports containers", () => {
+    const r = closeReport({ unsent: "hi", git: { dirty: 2, unpushed: 1 }, containers: ["web-1"] });
+    assert.deepEqual(r.blockers, ['unsent input: "hi"', "2 uncommitted changes", "1 commit not on any remote"]);
+    assert.deepEqual(r.leftovers, ["containers still running (not removed): web-1"]);
+  });
+  it("has nothing to say about a clean session", () => {
+    assert.deepEqual(closeReport({ unsent: "", git: null, containers: [] }), { blockers: [], leftovers: [] });
+  });
+});
+
+describe("gitState", () => {
+  it("counts uncommitted changes, and is null outside a repo", () => {
+    const dir = mkdtempSync(join(tmpdir(), "launch-git-"));
+    try {
+      assert.equal(gitState(dir), null);
+      spawnSync("git", ["init", "-q", dir]);
+      writeFileSync(join(dir, "f"), "x");
+      assert.deepEqual(gitState(dir), { dirty: 1, unpushed: null, hasRemote: false });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("launch, list and close through tmux", { skip: !which("tmux") && "tmux not installed" }, () => {
+  const socket = `launch-project-test-${process.pid}`;
+  const script = fileURLToPath(new URL("../scripts/launch.mjs", import.meta.url));
+  let home, bin, project, env;
+  before(() => {
+    home = mkdtempSync(join(tmpdir(), "launch-tmux-"));
+    bin = join(home, "bin");
+    project = join(home, "proj");
+    mkdirSync(bin);
+    mkdirSync(project);
+    // A stand-in claude: shows a Remote Control link and an input box, then idles.
+    writeFileSync(
+      join(bin, "claude"),
+      `#!/bin/sh\nprintf '%s\\n' '/remote-control is active · or at https://claude.ai/code/session_01Fake' '────────────────' "❯ $UNSENT" '────────────────'\nexec sleep 60\n`,
+    );
+    chmodSync(join(bin, "claude"), 0o755);
+    env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, LAUNCH_PROJECT_TMUX_SOCKET: socket, DISPLAY: "", WAYLAND_DISPLAY: "", HOME: home };
+  });
+  after(() => {
+    spawnSync("tmux", ["-L", socket, "kill-server"]);
+    rmSync(home, { recursive: true, force: true });
+  });
+  const run = (...args) => spawnSync("node", [script, ...args], { encoding: "utf8", env });
+
+  it("launches into a named tmux session and prints its link", () => {
+    const out = run(project, "--session-name", "demo");
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(out.stdout, /launched demo · .*proj · claude --remote-control=demo · no window/);
+    assert.match(out.stdout, /url: https:\/\/claude\.ai\/code\/session_01Fake/);
+  });
+
+  it("lists it, with the saved link", () => {
+    assert.match(run("list").stdout, /demo · .*proj · .*running · https:\/\/claude\.ai\/code\/session_01Fake/);
+  });
+
+  it("gives a taken name a number", () => {
+    assert.match(run(project, "--session-name", "demo").stdout, /launched demo-2 /);
+  });
+
+  it("refuses to close over unsent input unless forced", () => {
+    env.UNSENT = "half a thought";
+    assert.equal(spawnSync("tmux", ["-L", socket, "set-environment", "-g", "UNSENT", "half a thought"]).status, 0);
+    assert.match(run(project, "--session-name", "typed").stdout, /launched typed /);
+    const refused = run("close", "typed");
+    assert.equal(refused.status, 2);
+    assert.match(refused.stdout, /would lose: unsent input: "half a thought"/);
+    assert.match(run("list").stdout, /typed ·/);
+    const forced = run("close", "typed", "--force");
+    assert.equal(forced.status, 0, forced.stdout + forced.stderr);
+    assert.match(forced.stdout, /closed · typed/);
+  });
+
+  it("closes a clean session and it's gone from the list", () => {
+    const out = run("close", "demo");
+    assert.equal(out.status, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /closed · demo/);
+    assert.doesNotMatch(run("list").stdout, /^demo ·/m);
+  });
+
+  it("won't answer a trust prompt that isn't showing", () => {
+    const out = run("trust", "demo-2");
+    assert.equal(out.status, 1);
+    assert.match(out.stderr, /isn't showing the trust prompt/);
   });
 });
