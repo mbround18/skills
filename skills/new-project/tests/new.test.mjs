@@ -99,6 +99,46 @@ describe("plan", () => {
     }
   });
 
+  it("rust-react shares a GraphQL contract crate between server and frontend", () => {
+    const s = stepsFor("rust-react");
+    const r = runs(s);
+    for (const cmd of [
+      "cargo new --quiet --vcs none --lib crates/demo-contract",
+      "cargo add --quiet -p demo-contract async-graphql --no-default-features",
+      "cargo add --quiet -p demo async-graphql-axum",
+      "cargo add --quiet -p demo --path crates/demo-contract",
+      "pnpm --filter web add graphql",
+    ]) {
+      assert.ok(r.includes(cmd), cmd);
+    }
+    // The schema is exported before the frontend is built from it.
+    const exportAt = s.findIndex((x) => x.env?.UPDATE_SCHEMA);
+    assert.ok(exportAt > 0 && exportAt < s.findIndex((x) => x.write === "apps/web/codegen.ts"));
+    const lib = written(s, "crates/demo-contract/src/lib.rs");
+    assert.match(lib, /pub fn schema\(\) -> AppSchema/);
+    assert.match(lib, /UPDATE_SCHEMA/, "the test re-exports schema.graphql on request");
+    assert.match(lib, /run `make schema`/, "and otherwise fails when it's stale");
+    assert.match(written(s, "apps/demo/src/main.rs"), /route_service\("\/graphql", GraphQL::new\(demo_contract::schema\(\)\)\)/);
+    assert.match(written(s, "apps/web/codegen.ts"), /schema: "\.\.\/\.\.\/crates\/demo-contract\/schema\.graphql"/);
+    assert.match(written(s, "apps/web/src/api.ts"), /query Health/);
+    const scripts = s.find((x) => x.json === "apps/web/package.json").merge.scripts;
+    assert.match(scripts.build, /^graphql-codegen && /, "types are generated before tsc sees them");
+    const mk = written(s, "Makefile");
+    assert.match(mk, /^schema:\n\tUPDATE_SCHEMA=1 cargo test -q -p demo-contract\n\tpnpm --filter web codegen$/m);
+    assert.match(mk, /cargo check -p demo-contract --target wasm32-unknown-unknown/);
+    assert.match(written(s, ".gitignore"), /^apps\/web\/src\/gql\/$/m);
+    assert.match(written(s, "CONTRIBUTING.md"), /## GraphQL[\s\S]*make schema/);
+  });
+
+  it("--no-graphql, rust and web leave the contract out", () => {
+    for (const s of [stepsFor("rust-react", { graphql: false }), stepsFor("rust"), stepsFor("web")]) {
+      assert.equal(written(s, "crates/demo-contract/src/lib.rs"), undefined);
+      assert.doesNotMatch(written(s, "Makefile"), /schema|wasm32/);
+      assert.ok(!runs(s).some((c) => c.includes("graphql")));
+    }
+    assert.doesNotMatch(written(stepsFor("rust-react", { graphql: false }), "apps/demo/src/main.rs"), /graphql/i);
+  });
+
   it("--no-docker leaves Docker out", () => {
     const s = stepsFor("rust-react", { docker: false });
     for (const f of ["Dockerfile", ".dockerignore", "compose.yaml"]) assert.equal(written(s, f), undefined, f);
@@ -124,8 +164,12 @@ describe("plan", () => {
 describe("applyJson and args", () => {
   it("replaces set keys and drops the rest", () => {
     assert.deepEqual(applyJson({ a: 1, b: 2, scripts: { test: "x" } }, { set: { scripts: {} }, drop: ["b"] }), { a: 1, scripts: {} });
+    assert.deepEqual(applyJson({ scripts: { dev: "vite", lint: "oxlint" } }, { merge: { scripts: { dev: "x && vite" } } }), {
+      scripts: { dev: "x && vite", lint: "oxlint" },
+    });
   });
   it("parses the flags", () => {
+    assert.equal(parseArgs(["--no-graphql"]).graphql, false);
     assert.deepEqual(parseArgs(["demo", "--layout", "web", "--no-docker", "--dry-run"]), {
       license: "bsd-3-clause",
       docker: false,
@@ -165,7 +209,7 @@ describe("execute, with fake generators", () => {
     mkdirSync(bin);
     // Stand-ins that record their arguments and leave behind what the real tool would.
     const fake = {
-      cargo: `case "$1" in new) d="$(eval echo \\$$#)"; mkdir -p "$d/src"; echo '[package]' > "$d/Cargo.toml"; echo 'fn main() {}' > "$d/src/main.rs";; add) if [ -n "$FAIL_ADD" ]; then echo "boom: no network" >&2; exit 101; fi;; esac`,
+      cargo: `case "$1" in new) d="$(eval echo \\$$#)"; mkdir -p "$d/src"; echo '[package]' > "$d/Cargo.toml"; echo 'fn main() {}' > "$d/src/main.rs";; add) if [ -n "$FAIL_ADD" ]; then echo "boom: no network" >&2; exit 101; fi;; test) echo "UPDATE_SCHEMA=$UPDATE_SCHEMA" >> "${log}";; esac`,
       pnpm: `case "$1" in init) echo '{"name":"x","main":"index.js","keywords":[],"author":"","scripts":{"test":"exit 1"}}' > package.json;; create) mkdir -p "$3"; echo '{"name":"web"}' > "$3/package.json";; esac`,
     };
     for (const [name, body] of Object.entries(fake)) {
@@ -197,6 +241,10 @@ describe("execute, with fake generators", () => {
     assert.deepEqual(core.scripts, {});
     assert.equal(lines.length, stepsFor("rust-react").length);
     assert.match(readFileSync(log, "utf8"), /^pnpm init$/m);
+    assert.match(readFileSync(log, "utf8"), /^UPDATE_SCHEMA=1$/m, "a step's env reaches the tool");
+    const web = JSON.parse(readFileSync(join(target, "apps/web/package.json"), "utf8"));
+    assert.equal(web.name, "web", "create-vite's fields survive");
+    assert.equal(web.scripts.codegen, "graphql-codegen");
   });
 
   it("stops at the first failing tool and says which", () => {

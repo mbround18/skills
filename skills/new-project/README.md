@@ -40,8 +40,11 @@ Layouts:
 
 - `rust`: `apps/<name>` binary and `crates/<name>-core` library.
 - `rust-react`: the same, with an Axum server that serves the Vite React app
-  from `apps/web` (path set by `--static-dir` / `STATIC_DIR`), and
-  `packages/core` for shared TypeScript.
+  from `apps/web` (path set by `--static-dir` / `STATIC_DIR`),
+  `packages/core` for shared TypeScript, and a GraphQL schema written once
+  in Rust (`crates/<name>-contract`, WASM-compatible) that the server serves
+  and the frontend's TypeScript types are generated from. `make schema`
+  updates both; a test fails if they drift. `--no-graphql` leaves it out.
 - `web`: the Vite React app and `packages/core`.
 
 Then `make check` to lint, build and test it, and commit.

@@ -20,7 +20,7 @@ export const LAYOUTS = {
     rust: true,
     web: true,
     docker: true,
-    about: "Cargo + pnpm workspaces: Axum server in apps/<name> serving the Vite React TS app in apps/web",
+    about: "Cargo + pnpm workspaces: Axum server in apps/<name> serving the Vite React TS app in apps/web, GraphQL contract crate shared by both",
   },
   web: { rust: false, web: true, docker: true, about: "pnpm workspace: Vite React TS app in apps/web, shared code in packages/core" },
 };
@@ -45,7 +45,12 @@ export function checkName(name) {
  */
 export function plan(opts) {
   const layout = LAYOUTS[opts.layout];
-  const p = { ...opts, ...layout, docker: layout.docker && opts.docker !== false };
+  const p = {
+    ...opts,
+    ...layout,
+    docker: layout.docker && opts.docker !== false,
+    graphql: layout.rust && layout.web && opts.graphql !== false,
+  };
   const { name } = p;
   const steps = [
     { run: ["git", "init", "-q", "-b", "main"], cwd: "." },
@@ -69,7 +74,17 @@ export function plan(opts) {
       for (const [crate, features] of [["axum"], ["tokio", "full"], ["tower-http", "fs"], ["clap", "derive,env"]]) {
         steps.push({ run: ["cargo", "add", "--quiet", "-p", name, crate, ...(features ? ["-F", features] : [])], cwd: "." });
       }
-      steps.push({ write: `apps/${name}/src/main.rs`, content: files.axumMain() });
+      if (p.graphql) {
+        steps.push(
+          { run: ["cargo", "new", "--quiet", "--vcs", "none", "--lib", `crates/${name}-contract`], cwd: "." },
+          { run: ["cargo", "add", "--quiet", "-p", `${name}-contract`, "async-graphql", "--no-default-features"], cwd: "." },
+          { write: `crates/${name}-contract/src/lib.rs`, content: files.contractLib(p) },
+          { run: ["cargo", "add", "--quiet", "-p", name, "async-graphql-axum"], cwd: "." },
+          { run: ["cargo", "add", "--quiet", "-p", name, "--path", `crates/${name}-contract`], cwd: "." },
+          { run: ["cargo", "test", "--quiet", "-p", `${name}-contract`], cwd: ".", env: { UPDATE_SCHEMA: "1" } },
+        );
+      }
+      steps.push({ write: `apps/${name}/src/main.rs`, content: files.axumMain(p) });
     }
   }
 
@@ -111,6 +126,21 @@ export function plan(opts) {
       { run: ["pnpm", "install"], cwd: "." },
       { run: ["pnpm", "--filter", "web", "add", `@${name}/core`, "--workspace"], cwd: "." },
     );
+    if (p.graphql) {
+      steps.push(
+        { run: ["pnpm", "--filter", "web", "add", "graphql"], cwd: "." },
+        {
+          run: ["pnpm", "--filter", "web", "add", "-D", "@graphql-codegen/cli", "@graphql-codegen/client-preset", "@graphql-typed-document-node/core"],
+          cwd: ".",
+        },
+        { write: "apps/web/codegen.ts", content: files.codegenConfig(p) },
+        { write: "apps/web/src/api.ts", content: files.webApi() },
+        {
+          json: "apps/web/package.json",
+          merge: { scripts: { codegen: "graphql-codegen", dev: "graphql-codegen && vite", build: "graphql-codegen && tsc -b && vite build" } },
+        },
+      );
+    }
   }
 
   steps.push({ write: "Makefile", content: files.makefile(p) });
@@ -125,15 +155,16 @@ export function plan(opts) {
 }
 
 export function describeStep(s) {
-  if (s.run) return `run    ${s.run.join(" ")}${s.cwd && s.cwd !== "." ? `  (in ${s.cwd})` : ""}`;
+  if (s.run) return `run    ${Object.entries(s.env ?? {}).map(([k, v]) => `${k}=${v} `).join("")}${s.run.join(" ")}${s.cwd && s.cwd !== "." ? `  (in ${s.cwd})` : ""}`;
   if (s.write) return `write  ${s.write}`;
   if (s.json) return `edit   ${s.json}`;
   return `mkdir  ${s.mkdir}`;
 }
 
-/** Applies a json step to an object: `set` keys replace, `drop` keys go. */
-export function applyJson(obj, { set = {}, drop = [] }) {
+/** Applies a json step to an object: `set` keys replace, `merge` objects merge one level down, `drop` keys go. */
+export function applyJson(obj, { set = {}, merge = {}, drop = [] }) {
   const out = { ...obj, ...set };
+  for (const [k, v] of Object.entries(merge)) out[k] = { ...(out[k] ?? {}), ...v };
   for (const k of drop) delete out[k];
   return out;
 }
@@ -142,7 +173,7 @@ export function applyJson(obj, { set = {}, drop = [] }) {
 export function execute(steps, root, { log = () => {}, env = process.env } = {}) {
   for (const s of steps) {
     if (s.run) {
-      const r = spawnSync(s.run[0], s.run.slice(1), { cwd: join(root, s.cwd ?? "."), encoding: "utf8", env });
+      const r = spawnSync(s.run[0], s.run.slice(1), { cwd: join(root, s.cwd ?? "."), encoding: "utf8", env: { ...env, ...s.env } });
       if (r.status !== 0) {
         const why = (r.error?.message ?? `${r.stderr}\n${r.stdout}`).trim().split("\n").slice(-8).join("\n");
         return { ok: false, step: s, error: why };
@@ -177,6 +208,7 @@ export function parseArgs(argv) {
     else if (a === "--license") opts.license = argv[++i];
     else if (a === "--description") opts.description = argv[++i];
     else if (a === "--no-docker") opts.docker = false;
+    else if (a === "--no-graphql") opts.graphql = false;
     else if (a === "--dry-run") opts.dryRun = true;
     else if (a === "--help" || a === "-h") opts.help = true;
     else if (a.startsWith("-")) opts.unknown = a;
@@ -185,7 +217,7 @@ export function parseArgs(argv) {
   return opts;
 }
 
-const USAGE = `usage: new.mjs <name> --layout <${Object.keys(LAYOUTS).join("|")}> [--dir <parent>] [--license <${Object.keys(files.LICENSES).join("|")}>] [--description <text>] [--no-docker] [--dry-run]
+const USAGE = `usage: new.mjs <name> --layout <${Object.keys(LAYOUTS).join("|")}> [--dir <parent>] [--license <${Object.keys(files.LICENSES).join("|")}>] [--description <text>] [--no-docker] [--no-graphql] [--dry-run]
 
 layouts:
 ${Object.entries(LAYOUTS)

@@ -6,7 +6,7 @@ compatibility: Node.js and git; cargo for rust layouts, pnpm for web layouts; ne
 metadata:
   author: mbround18
 user-invocable: true
-argument-hint: "<name> --layout <rust|rust-react|web> [--dir <parent>] [--license <bsd-3-clause|mit|apache-2.0>] [--description <text>] [--no-docker] [--dry-run]"
+argument-hint: "<name> --layout <rust|rust-react|web> [--dir <parent>] [--license <bsd-3-clause|mit|apache-2.0>] [--description <text>] [--no-docker] [--no-graphql] [--dry-run]"
 ---
 
 # new-project
@@ -21,7 +21,7 @@ layout, housekeeping, Docker, licence and docs.
 | layout | what you get |
 | --- | --- |
 | `rust` | Cargo workspace: `apps/<name>` (binary, `cargo new`), `crates/<name>-core` (library) |
-| `rust-react` | `rust`, plus an Axum server in `apps/<name>` that serves `apps/web` from `--static-dir` / `STATIC_DIR`, and a pnpm workspace with `apps/web` (create-vite `react-ts`) and `packages/core` |
+| `rust-react` | `rust`, plus an Axum server in `apps/<name>` that serves `apps/web` from `--static-dir` / `STATIC_DIR`, a pnpm workspace with `apps/web` (create-vite `react-ts`) and `packages/core`, and a GraphQL contract (below) |
 | `web` | pnpm workspace: `apps/web` (create-vite `react-ts`) and `packages/core` |
 
 Every layout also gets:
@@ -30,13 +30,29 @@ Every layout also gets:
 - a `Makefile` with `build` (which runs `gc` first), `check`, `test` and `gc`. `gc` runs `cargo sweep` and caps the Docker build cache, and never fails the build.
 - unless `--no-docker`: a multi-stage `Dockerfile` (cargo-chef for Rust, `pnpm fetch` for the web app, assets copied beside the binary, never embedded), `.dockerignore`, and `compose.yaml` with `restart: ${RESTART_POLICY:-no}`
 
+### The GraphQL contract (`rust-react`, unless `--no-graphql`)
+
+One schema both sides work from, defined once in Rust:
+
+- `crates/<name>-contract`: the schema in async-graphql, without default
+  features or I/O so it compiles to WASM. `make check` proves that when the
+  `wasm32-unknown-unknown` target is installed, and says how to add it when
+  it isn't.
+- The server serves it at `/graphql`.
+- It's exported to `crates/<name>-contract/schema.graphql`; graphql-codegen
+  (client preset) generates the frontend's types into `apps/web/src/gql`
+  before every `dev` and `build`. `apps/web/src/api.ts` holds a typed
+  `execute()` helper and a sample `Health` query.
+- A Rust test fails when `schema.graphql` falls behind the Rust schema.
+  `make schema` re-exports it and regenerates the types.
+
 ## Commands
 
 Paths are relative to this skill's directory (the folder holding this
 SKILL.md): run from there, or give the script's absolute path.
 
 ```bash
-node scripts/new.mjs <name> --layout <rust|rust-react|web> [--dir <parent>] [--license <bsd-3-clause|mit|apache-2.0>] [--description <text>] [--no-docker] [--dry-run]
+node scripts/new.mjs <name> --layout <rust|rust-react|web> [--dir <parent>] [--license <bsd-3-clause|mit|apache-2.0>] [--description <text>] [--no-docker] [--no-graphql] [--dry-run]
 ```
 
 - `<name>`: lowercase letters, digits and single hyphens. It becomes the
@@ -64,7 +80,6 @@ folder to look at.
 
 ## Not included yet
 
-- the shared GraphQL contract crate for Rust + React
 - OpenTelemetry wiring, Playwright, and database/NATS/Redis services in compose
 
 Add these per project for now. Say so when the user expects them.

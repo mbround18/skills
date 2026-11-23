@@ -77,6 +77,7 @@ export const gitignore = (p) =>
     p.rust && "target/",
     p.web && "node_modules/",
     p.web && "dist/",
+    p.graphql && "apps/web/src/gql/",
     ".env",
     ".env.*",
     "!.env.example",
@@ -101,7 +102,7 @@ export const pnpmWorkspace = () => `packages:
 /** Makefile: build depends on gc, so target/ and the BuildKit cache never grow unbounded. */
 export function makefile(p) {
   const tab = "\t";
-  const lines = ["GC_DAYS ?= 14", p.docker && "GC_DOCKER_KEEP ?= 40GB", "", ".PHONY: build check test gc", ""];
+  const lines = ["GC_DAYS ?= 14", p.docker && "GC_DOCKER_KEEP ?= 40GB", "", `.PHONY: build check test gc${p.graphql ? " schema" : ""}`, ""];
   lines.push("build: gc");
   if (p.web) lines.push(`${tab}pnpm install --frozen-lockfile`, `${tab}pnpm -r build`);
   if (p.rust) lines.push(`${tab}cargo build --workspace`);
@@ -109,12 +110,28 @@ export function makefile(p) {
   if (p.rust) {
     lines.push(`${tab}cargo fmt --all --check`, `${tab}cargo clippy --workspace --all-targets -- -D warnings`);
   }
+  if (p.graphql) {
+    lines.push(
+      `${tab}@if rustup target list --installed 2>/dev/null | grep -qx wasm32-unknown-unknown; \\`,
+      `${tab}then cargo check -p ${p.name}-contract --target wasm32-unknown-unknown; \\`,
+      `${tab}else echo "note: skipped the contract's WASM check; rustup target add wasm32-unknown-unknown"; fi`,
+    );
+  }
   if (p.web) lines.push(`${tab}pnpm -r --if-present lint`, `${tab}pnpm -r build`);
   lines.push(`${tab}$(MAKE) test`, "", "test:");
   if (p.rust) lines.push(`${tab}cargo test --workspace`);
   if (p.web) lines.push(`${tab}pnpm -r --if-present test`);
   lines.push(
     "",
+    ...(p.graphql
+      ? [
+          "# Re-export the GraphQL schema after changing the contract crate; the frontend's types come from it.",
+          "schema:",
+          `${tab}UPDATE_SCHEMA=1 cargo test -q -p ${p.name}-contract`,
+          p.web ? `${tab}pnpm --filter web codegen` : false,
+          "",
+        ]
+      : []),
     "# Housekeeping never fails the build: missing tools or a stopped daemon only print a note.",
     "gc:",
   );
@@ -135,10 +152,10 @@ export function makefile(p) {
 }
 
 /** Axum server that serves the built frontend from a runtime-configurable directory. */
-export const axumMain = () => `use std::net::SocketAddr;
+export const axumMain = (p = {}) => `use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use axum::{Router, routing::get};
+${p.graphql ? "use async_graphql_axum::GraphQL;\n" : ""}use axum::{Router, routing::get};
 use clap::Parser;
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -158,7 +175,7 @@ async fn main() -> std::io::Result<()> {
     let index = ServeFile::new(args.static_dir.join("index.html"));
     let app = Router::new()
         .route("/healthz", get(|| async { "ok" }))
-        .fallback_service(ServeDir::new(&args.static_dir).fallback(index));
+${p.graphql ? `        .route_service("/graphql", GraphQL::new(${crateIdent(p)}::schema()))\n` : ""}        .fallback_service(ServeDir::new(&args.static_dir).fallback(index));
     let listener = tokio::net::TcpListener::bind(args.listen).await?;
     println!("listening on http://{}", args.listen);
     axum::serve(listener, app).await
@@ -233,6 +250,7 @@ const layoutLines = (p) =>
   [
     p.rust && `- \`apps/${p.name}\`: the binary. A thin layer that wires the libraries together.`,
     p.rust && `- \`crates/${p.name}-core\`: library code and business logic.`,
+    p.graphql && `- \`crates/${p.name}-contract\`: the GraphQL schema, shared by server and frontend. Compiles to WASM.`,
     p.web && "- `apps/web`: the React + TypeScript frontend (Vite). Keep it thin too.",
     p.web && `- \`packages/core\`: shared TypeScript code the frontend builds on.`,
     "- `docs/guides`: user-facing guides.",
@@ -276,7 +294,13 @@ ${layoutLines(p)}
 
 ${p.rust ? `To use the core crate from the binary: \`cargo add -p ${p.name} --path crates/${p.name}-core\`.\n\n` : ""}Entry points live in \`apps/\`. Everything reusable lives in ${[p.rust && "`crates/`", p.web && "`packages/`"].filter(Boolean).join(" and ")}, so replacing an app means little rewriting. Core logic talks to infrastructure through interfaces (ports), with adapters behind them.
 
-## Conventions
+${p.graphql ? `## GraphQL
+
+The schema lives in Rust, in \`crates/${p.name}-contract\`, and the server serves it at \`/graphql\`. The crate must keep compiling to WASM (\`make check\` tests that), so keep I/O and runtimes out of it.
+
+After changing it, run \`make schema\`: it re-exports \`schema.graphql\` and regenerates the frontend's types in \`apps/web/src/gql\` (graphql-codegen, client preset). A test fails if \`schema.graphql\` is out of date, so the two sides can't drift. In the frontend, write operations with \`graphql()\` from \`./gql\` and run them with \`execute()\` from \`src/api.ts\`; results and variables come back typed.
+
+` : ""}## Conventions
 
 - Every commit is signed.
 - Small, focused changes. Tests first for core logic, and deterministic.
@@ -292,6 +316,112 @@ ${p.web ? "- End-to-end tests use Playwright, split per feature so each runs alo
 export const guidesReadme = (p) => `# ${p.name} guides
 
 Everything a user needs to learn to use ${p.name} goes here, one guide per task.
+`;
+
+const crateIdent = (p) => `${p.name}_contract`.replaceAll("-", "_");
+
+/**
+ * The contract crate: the GraphQL schema both sides work from. It stays
+ * WASM-compatible (async-graphql without default features, no I/O), and its
+ * test keeps schema.graphql, which the frontend's types are generated from,
+ * in step with it.
+ */
+export const contractLib = () => `//! The GraphQL contract: the one schema the server serves and the frontend's
+//! types are generated from. Keep it free of I/O and runtime dependencies so
+//! it compiles to WASM; resolvers reach infrastructure through traits.
+
+use async_graphql::{EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
+
+#[derive(SimpleObject)]
+pub struct Health {
+    pub ok: bool,
+    pub version: String,
+}
+
+pub struct Query;
+
+#[Object]
+impl Query {
+    async fn health(&self) -> Health {
+        Health {
+            ok: true,
+            version: env!("CARGO_PKG_VERSION").into(),
+        }
+    }
+}
+
+pub type AppSchema = Schema<Query, EmptyMutation, EmptySubscription>;
+
+pub fn schema() -> AppSchema {
+    Schema::build(Query, EmptyMutation, EmptySubscription).finish()
+}
+
+#[cfg(test)]
+mod tests {
+    /// schema.graphql is what the frontend's types are generated from, so it must match.
+    #[test]
+    fn schema_file_is_current() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/schema.graphql");
+        let sdl = super::schema().sdl();
+        if std::env::var_os("UPDATE_SCHEMA").is_some() {
+            std::fs::write(path, &sdl).expect("write schema.graphql");
+            return;
+        }
+        let saved = std::fs::read_to_string(path).unwrap_or_default();
+        assert!(
+            saved == sdl,
+            "schema.graphql is out of date: run \`make schema\`"
+        );
+    }
+}
+`;
+
+export const codegenConfig = (p) => `import type { CodegenConfig } from "@graphql-codegen/cli";
+
+// Types for the GraphQL operations in src, generated from the Rust contract's schema.
+const config: CodegenConfig = {
+  schema: "../../crates/${p.name}-contract/schema.graphql",
+  documents: ["src/**/*.{ts,tsx}", "!src/gql/**/*"],
+  ignoreNoDocuments: true,
+  generates: {
+    "./src/gql/": {
+      preset: "client",
+      config: { documentMode: "string", useTypeImports: true },
+    },
+  },
+};
+
+export default config;
+`;
+
+/** A typed fetch helper and one sample operation, so codegen has a document and the app a pattern to copy. */
+export const webApi = () => `import { graphql } from "./gql";
+import type { TypedDocumentString } from "./gql/graphql";
+
+/** Runs a typed operation against the server's /graphql endpoint. */
+export async function execute<TResult, TVariables>(
+  query: TypedDocumentString<TResult, TVariables>,
+  ...[variables]: TVariables extends Record<string, never> ? [] : [TVariables]
+): Promise<TResult> {
+  const res = await fetch("/graphql", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/graphql-response+json" },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!res.ok) throw new Error(\`GraphQL request failed: \${res.status}\`);
+  const { data, errors } = await res.json();
+  if (errors?.length) throw new Error(errors.map((e: { message: string }) => e.message).join("; "));
+  return data as TResult;
+}
+
+export const HealthQuery = graphql(\`
+  query Health {
+    health {
+      ok
+      version
+    }
+  }
+\`);
 `;
 
 export const coreIndex = () => `/** Shared code for the apps. Keep it free of framework and transport details. */
